@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from data.setup import load_all
 from server.env import ClarusEnv
@@ -80,22 +80,104 @@ app = FastAPI(
 # ------------------------------------------------------------------
 
 
-@app.get("/")
-async def root() -> Dict[str, Any]:
-    """Health check and environment info."""
-    return {
-        "name": "Clarus",
-        "version": "1.0.0",
-        "description": "Healthcare Billing Dispute & Patient Advocacy OpenEnv environment",
-        "status": "running",
-        "tasks": ["deductive_liability", "abductive_conflict", "adversarial_fabrication"],
-        "endpoints": {
-            "reset": "POST /reset",
-            "step": "POST /step",
-            "state": "GET /state",
-            "docs": "GET /docs",
-        },
-    }
+@app.get("/", response_class=HTMLResponse)
+async def root() -> HTMLResponse:
+    """Landing page — rendered in the HuggingFace Space App tab."""
+    html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clarus — Healthcare Billing Dispute RL Environment</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: #0f172a; color: #e2e8f0; min-height: 100vh;
+           display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .card { background: #1e293b; border-radius: 16px; padding: 2.5rem;
+            max-width: 680px; width: 100%; box-shadow: 0 25px 50px rgba(0,0,0,0.4); }
+    .badge { display: inline-block; background: #22c55e; color: #fff;
+             font-size: 0.75rem; font-weight: 700; padding: 3px 10px;
+             border-radius: 999px; margin-bottom: 1rem; letter-spacing: 0.05em; }
+    h1 { font-size: 2rem; font-weight: 800; color: #f8fafc; margin-bottom: 0.25rem; }
+    .subtitle { color: #94a3b8; margin-bottom: 2rem; font-size: 0.95rem; }
+    .section-title { font-size: 0.7rem; font-weight: 700; color: #64748b;
+                     letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.75rem; }
+    .tasks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 2rem; }
+    .task { background: #0f172a; border-radius: 10px; padding: 1rem; text-align: center; }
+    .task-name { font-size: 0.78rem; font-weight: 600; color: #38bdf8; margin-bottom: 0.25rem; }
+    .task-diff { font-size: 0.7rem; color: #64748b; }
+    .easy { color: #22c55e !important; }
+    .medium { color: #f59e0b !important; }
+    .hard { color: #ef4444 !important; }
+    .endpoints { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 2rem; }
+    .ep { display: flex; align-items: center; gap: 0.75rem; background: #0f172a;
+          border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.85rem; }
+    .method { font-weight: 700; font-size: 0.72rem; padding: 2px 8px;
+              border-radius: 4px; min-width: 44px; text-align: center; }
+    .post { background: #1d4ed8; color: #bfdbfe; }
+    .get  { background: #15803d; color: #bbf7d0; }
+    .path { color: #e2e8f0; font-family: monospace; }
+    .desc { color: #64748b; font-size: 0.78rem; margin-left: auto; }
+    .btn  { display: block; text-align: center; background: #3b82f6; color: #fff;
+            text-decoration: none; padding: 0.85rem; border-radius: 10px;
+            font-weight: 700; font-size: 0.95rem; transition: background 0.2s; }
+    .btn:hover { background: #2563eb; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">● RUNNING</div>
+    <h1>Clarus</h1>
+    <p class="subtitle">Healthcare Billing Dispute &amp; Patient Advocacy — OpenEnv RL Environment</p>
+
+    <p class="section-title">Tasks</p>
+    <div class="tasks">
+      <div class="task">
+        <div class="task-name">Deductive Liability</div>
+        <div class="task-diff easy">Easy</div>
+      </div>
+      <div class="task">
+        <div class="task-name">Abductive Conflict</div>
+        <div class="task-diff medium">Medium</div>
+      </div>
+      <div class="task">
+        <div class="task-name">Adversarial Fabrication</div>
+        <div class="task-diff hard">Hard</div>
+      </div>
+    </div>
+
+    <p class="section-title">Endpoints</p>
+    <div class="endpoints">
+      <div class="ep">
+        <span class="method post">POST</span>
+        <span class="path">/reset</span>
+        <span class="desc">Start a new episode</span>
+      </div>
+      <div class="ep">
+        <span class="method post">POST</span>
+        <span class="path">/step</span>
+        <span class="desc">Execute one action</span>
+      </div>
+      <div class="ep">
+        <span class="method get">GET</span>
+        <span class="path">/state</span>
+        <span class="desc">Current environment state</span>
+      </div>
+      <div class="ep">
+        <span class="method get">GET</span>
+        <span class="path">/docs</span>
+        <span class="desc">Interactive API documentation</span>
+      </div>
+    </div>
+
+    <a class="btn" href="/docs">Open Interactive API Docs →</a>
+  </div>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html)
 
 
 @app.post("/reset", response_model=ResetResponse)
