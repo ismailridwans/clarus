@@ -1,0 +1,74 @@
+[
+  {
+    "plan_id": "PLAN-001",
+    "plan_type": "PPO",
+    "deductible_individual": 1000.0,
+    "coinsurance_rate": 0.20,
+    "copay_specialist": 50.0,
+    "oop_max": 5000.0,
+    "nsa_compliant": 1
+  },
+  {
+    "plan_id": "PLAN-002",
+    "plan_type": "HMO",
+    "deductible_individual": 500.0,
+    "coinsurance_rate": 0.15,
+    "copay_specialist": 30.0,
+    "oop_max": 3000.0,
+    "nsa_compliant": 1
+  },
+  {
+    "plan_id": "PLAN-003",
+    "plan_type": "HDHP",
+    "deductible_individual": 3000.0,
+    "coinsurance_rate": 0.20,
+    "copay_specialist": 0.0,
+    "oop_max": 7000.0,
+    "nsa_compliant": 1
+  },
+  {
+    "plan_id": "PLAN-004",
+    "plan_type": "PPO",
+    "deductible_individual": 2000.0,
+    "coinsurance_rate": 0.30,
+    "copay_specialist": 75.0,
+    "oop_max": 8000.0,
+    "nsa_compliant": 1
+  },
+  {
+    "plan_id": "PLAN-005",
+    "plan_type": "EPO",
+    "deductible_individual": 1500.0,
+    "coinsurance_rate": 0.20,
+    "copay_specialist": 40.0,
+    "oop_max": 6000.0,
+    "nsa_compliant": 1
+  },
+  {
+    "plan_id": "PLAN-006",
+    "plan_type": "PPO",
+    "deductible_individual": 750.0,
+    "coinsurance_rate": 0.10,
+    "copay_specialist": 25.0,
+    "oop_max": 4000.0,
+    "nsa_compliant": 1
+  },
+  {
+    "plan_id": "PLAN-007",
+    "plan_type": "HMO",
+    "deductible_individual": 1000.0,
+    "coinsurance_rate": 0.25,
+    "copay_specialist": 60.0,
+    "oop_max": 6500.0,
+    "nsa_compliant": 1
+  },
+  {
+    "plan_id": "PLAN-008",
+    "plan_type": "HDHP",
+    "deductible_individual": 2500.0,
+    "coinsurance_rate": 0.15,
+    "copay_specialist": 0.0,
+    "oop_max": 7500.0,
+    "nsa_compliant": 1
+  }
+]

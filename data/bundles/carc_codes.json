@@ -1,0 +1,20 @@
+[
+  {"code": "CO-4",  "category": "Contractual Obligation", "description": "The procedure code is inconsistent with the modifier used or a required modifier is missing."},
+  {"code": "CO-16", "category": "Contractual Obligation", "description": "Claim/service lacks information or has submission/billing error(s)."},
+  {"code": "CO-22", "category": "Contractual Obligation", "description": "This care may be covered by another payer per coordination of benefits."},
+  {"code": "CO-29", "category": "Contractual Obligation", "description": "The time limit for filing has expired."},
+  {"code": "CO-45", "category": "Contractual Obligation", "description": "Charge exceeds fee schedule/maximum allowable or contracted/legislated fee arrangement."},
+  {"code": "CO-50", "category": "Contractual Obligation", "description": "These are non-covered services because this is not deemed a 'medical necessity' by the payer."},
+  {"code": "CO-97", "category": "Contractual Obligation", "description": "The benefit for this service is included in the payment/allowance for another service/procedure that has already been adjudicated."},
+  {"code": "CO-109","category": "Contractual Obligation", "description": "Claim/service not covered by this payer/contractor. You must send the claim/service to the correct payer/contractor."},
+  {"code": "CO-167","category": "Contractual Obligation", "description": "This (these) diagnosis(es) is (are) not covered, missing, or are invalid."},
+  {"code": "CO-197","category": "Contractual Obligation", "description": "Precertification/authorization/notification/pre-treatment absent."},
+  {"code": "OA-23", "category": "Other Adjustment",      "description": "The impact of prior payer(s) adjudication including payments and/or adjustments."},
+  {"code": "PI-1",  "category": "Payer Initiated",       "description": "Deductible Amount."},
+  {"code": "PI-2",  "category": "Payer Initiated",       "description": "Coinsurance Amount."},
+  {"code": "PI-3",  "category": "Payer Initiated",       "description": "Co-payment Amount."},
+  {"code": "PR-1",  "category": "Patient Responsibility", "description": "Deductible Amount."},
+  {"code": "PR-2",  "category": "Patient Responsibility", "description": "Coinsurance Amount."},
+  {"code": "PR-3",  "category": "Patient Responsibility", "description": "Co-payment Amount."},
+  {"code": "PR-96", "category": "Patient Responsibility", "description": "Non-covered charge(s). At least one Remark Code must be provided (may be comprised of either the NCPDP Reject Reason Code, or Remittance Advice Remark Code that is not an ALERT.)"}
+]

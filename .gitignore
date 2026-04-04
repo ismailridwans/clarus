@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+results/
+data/cpt_codes.csv
+data/ncci_edits.csv
+data/nsa_qpa_rates.csv
+*.egg-info/
+dist/
+build/
+.env

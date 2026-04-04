@@ -1,0 +1,36 @@
+code,short_desc,long_desc,rvu_work,rvu_total,status
+99202,Office visit new low,"Office or other outpatient visit for new patient, low medical decision making",0.93,1.50,A
+99203,Office visit new mod,"Office or other outpatient visit for new patient, moderate medical decision making",1.60,2.58,A
+99204,Office visit new mod-high,"Office or other outpatient visit for new patient, moderate-high medical decision making",2.60,4.20,A
+99205,Office visit new high,"Office or other outpatient visit for new patient, high medical decision making",3.50,5.65,A
+99211,Office visit est minimal,"Office or other outpatient visit for established patient, minimal",0.18,0.35,A
+99212,Office visit est low,"Office or other outpatient visit for established patient, low medical decision making",0.70,1.13,A
+99213,Office visit est low-mod,"Office or other outpatient visit for established patient, low-moderate medical decision making",0.97,1.60,A
+99214,Office visit est mod,"Office or other outpatient visit for established patient, moderate medical decision making",1.50,2.43,A
+99215,Office visit est high,"Office or other outpatient visit for established patient, high medical decision making",2.11,3.40,A
+93000,ECG routine,"Electrocardiogram, routine ECG with at least 12 leads; with interpretation and report",0.17,0.51,A
+93005,ECG tracing only,"Electrocardiogram, routine ECG with at least 12 leads; tracing only, without interpretation and report",0.12,0.36,A
+93010,ECG interpretation only,"Electrocardiogram, routine ECG with at least 12 leads; interpretation and report only",0.09,0.23,A
+27447,Knee arthroplasty total,"Arthroplasty, knee, condyle and plateau; medial AND lateral compartments with or without patella resurfacing (total knee arthroplasty)",20.84,34.71,A
+27487,Revision knee arthroplasty,"Revision of total knee arthroplasty, with or without allograft; femoral and entire tibial component",24.50,40.82,A
+29881,Knee arthroscopy surg,"Arthroscopy, knee, surgical; with meniscectomy (medial AND lateral, including any meniscal shaving)",8.33,14.55,A
+29879,Knee arthroscopy abr,"Arthroscopy, knee, surgical; abrasion arthroplasty (includes chondroplasty where necessary) or multiple drilling or microfracture",8.01,13.96,A
+27130,Hip arthroplasty total,"Arthroplasty, acetabular and proximal femoral prosthetic replacement (total hip arthroplasty), with or without autograft or allograft",21.07,35.10,A
+27134,Hip arthroplasty revision,"Revision of total hip arthroplasty; both components, with or without autograft or allograft",29.44,49.03,A
+23472,Shoulder arthroplasty total,"Arthroplasty, glenohumeral joint; total shoulder (glenoid and proximal humeral replacement (eg, total shoulder))",18.62,30.96,A
+23474,Shoulder arthroplasty revision,"Revision of total shoulder arthroplasty, including allograft when performed; humeral or glenoid component",22.15,36.88,A
+43239,EGD with biopsy,"Esophagogastroduodenoscopy, flexible, transoral; with biopsy, single or multiple",3.89,6.74,A
+43235,EGD diagnostic,"Esophagogastroduodenoscopy, flexible, transoral; diagnostic, including collection of specimen(s) by brushing or washing, when performed",3.50,5.35,A
+43240,EGD with suturing,"Esophagogastroduodenoscopy, flexible, transoral; with transmural drainage of pseudocyst (including placement of transmural stent[s], when performed)",7.10,11.85,A
+45378,Colonoscopy diagnostic,"Colonoscopy, flexible; diagnostic, including collection of specimen(s) by brushing or washing, when performed",3.69,6.31,A
+45380,Colonoscopy with biopsy,"Colonoscopy, flexible; with biopsy, single or multiple",4.43,7.59,A
+52000,Cystoscopy,"Cystourethroscopy (separate procedure)",1.45,2.48,A
+52010,Cystoscopy with ureteral catheter,"Cystourethroscopy, with ejaculatory duct catheterization, with or without irrigation, instillation, or duct radiography",2.10,3.58,A
+70553,MRI brain with contrast,"Magnetic resonance imaging, brain; without contrast material(s), followed by contrast material(s) and further sequences",2.15,7.60,A
+70551,MRI brain without contrast,"Magnetic resonance imaging, brain; without contrast material(s)",1.65,5.84,A
+71250,CT chest without contrast,"Computed tomography, thorax; without contrast material",1.45,3.62,A
+71260,CT chest with contrast,"Computed tomography, thorax; with contrast material(s)",1.60,4.00,A
+36415,Venipuncture routine,"Collection of venous blood by venipuncture",0.00,0.22,A
+85025,CBC with differential,"Blood count; complete (CBC), automated (Hgb, Hct, RBC, WBC and platelet count) and automated differential WBC count",0.00,0.54,A
+80053,Comprehensive metabolic,"Comprehensive metabolic panel. This panel must include the following: Albumin; Bilirubin, total; Calcium, total; Carbon dioxide (bicarbonate); Chloride; Creatinine; Glucose; Phosphatase, alkaline; Potassium; Protein, total; Sodium; Transferase, alanine amino (ALT) (SGPT); Transferase, aspartate amino (AST) (SGOT); Urea nitrogen (BUN)",0.00,0.65,A
+99000,Specimen handling,"Handling and/or conveyance of specimen for transfer from the office to a laboratory",0.00,0.10,A

@@ -1,0 +1,49 @@
+name: clarus
+version: "1.0.0"
+description: >
+  Healthcare billing dispute RL environment. An AI agent vindicates wrongly-billed
+  patients by reconciling multi-party records, detecting regulatory violations, and
+  holding its position under adversarial counter-pressure. Graded by SQL checks
+  against real CMS regulatory data (CPT, NCCI, NSA/MPFS 2026).
+tags:
+  - customer-service
+  - healthcare
+  - billing
+  - compliance
+  - multi-party
+  - adversarial
+tasks:
+  - name: deductive_liability
+    difficulty: easy
+    max_steps: 12
+    description: >
+      Compute the patient's correct out-of-pocket balance from EOB, payment ledger,
+      and plan document. File a refund for the overpayment.
+  - name: abductive_conflict
+    difficulty: medium
+    max_steps: 15
+    description: >
+      Two insurer sources say the denial is legitimate. Two other sources override it.
+      The agent must read all four before diagnosing. A TRAP check fires if the agent
+      concludes legitimate_denial without reading the NCCI modifier evidence.
+  - name: adversarial_fabrication
+    difficulty: hard
+    max_steps: 22
+    description: >
+      Detect a backdated Good Faith Estimate by comparing provider_record to the
+      independent processor_log timestamp. Then reject three adversarial
+      counter-arguments from the provider and hold the NSA dispute filing.
+endpoints:
+  reset: POST /reset
+  step:  POST /step
+  state: GET  /state
+inference:
+  api_key_env: OPENAI_API_KEY
+  default_model: gpt-4o
+  script: inference.py
+runtime:
+  min_python: "3.11"
+  max_memory_gb: 8
+  max_vcpu: 2
+  max_inference_minutes: 20
+hf_space: ismailridwans/clarus
