@@ -1,20 +1,21 @@
 """Clarus inference script — OpenEnv baseline agent.
 
-Reads OPENAI_API_KEY from the environment and runs gpt-4o against the
-Clarus environment.  Emits [START], [STEP], [END] to stdout in the
-required OpenEnv format.
+Uses the OpenAI client to call an LLM via any OpenAI-compatible endpoint.
+Reads API_BASE_URL, MODEL_NAME, and HF_TOKEN from environment variables.
+Emits [START], [STEP], [END] to stdout in the required OpenEnv format.
 
 Usage:
-    export OPENAI_API_KEY=sk-...
+    export API_BASE_URL=https://router.huggingface.co/v1
+    export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
+    export HF_TOKEN=hf_...
     python inference.py
 
-    # Override model or target specific tasks:
-    MODEL_NAME=gpt-4o-mini python inference.py
-
 Environment variables:
-    OPENAI_API_KEY   Required. Your OpenAI API key (sk-...).
-    MODEL_NAME       Optional. Defaults to gpt-4o.
-    API_BASE_URL     Optional. Override API endpoint (e.g. Azure OpenAI).
+    API_BASE_URL   The LLM API endpoint (OpenAI-compatible).
+                   Default: https://router.huggingface.co/v1
+    MODEL_NAME     Model identifier.
+                   Default: Qwen/Qwen2.5-72B-Instruct
+    HF_TOKEN       HuggingFace API key (used as the bearer token).
 """
 
 from __future__ import annotations
@@ -30,15 +31,12 @@ from typing import List, Optional
 from openai import OpenAI
 
 # ------------------------------------------------------------------
-# Configuration — read from environment variables only, no hardcoding
+# Configuration — read exclusively from environment variables
 # ------------------------------------------------------------------
 
-OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-MODEL_NAME: str = os.getenv("MODEL_NAME", "gpt-4o")
-
-# API_BASE_URL is optional; when unset the standard OpenAI endpoint is used.
-# Set it to point at Azure OpenAI, a local proxy, or an OpenAI-compatible server.
-_base_url_override: Optional[str] = os.getenv("API_BASE_URL")
+API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME: str = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN: str = os.getenv("HF_TOKEN", "")
 
 BENCHMARK = "clarus"
 TEMPERATURE = 0.1
@@ -111,21 +109,21 @@ SYSTEM_PROMPT = textwrap.dedent(
 # ------------------------------------------------------------------
 
 
-def _require_api_key() -> None:
-    """Exit with a clear error if OPENAI_API_KEY is not set.
+def _require_token() -> None:
+    """Exit with a clear error if HF_TOKEN is not set.
 
     Raises:
-        SystemExit: Always when the key is missing.
+        SystemExit: Always when the token is missing.
     """
-    if not OPENAI_API_KEY:
+    if not HF_TOKEN:
         print(
-            "ERROR: OPENAI_API_KEY environment variable is not set.\n"
+            "ERROR: HF_TOKEN environment variable is not set.\n"
             "\n"
             "Set it before running:\n"
-            "    export OPENAI_API_KEY=sk-...\n"
+            "    export HF_TOKEN=hf_...\n"
             "    python inference.py\n"
             "\n"
-            "Get a key at: https://platform.openai.com/api-keys",
+            "Get a HuggingFace token at: https://huggingface.co/settings/tokens",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -206,7 +204,7 @@ def get_model_action(
     """Call the model with current observation and return a parsed action dict.
 
     Args:
-        client: OpenAI client instance.
+        client: OpenAI client instance (pointed at API_BASE_URL).
         obs: Current ClarusObservation.
         task_name: Name of the active task.
         step_n: Current step number (1-indexed).
@@ -271,7 +269,7 @@ async def run_episode(
     Args:
         env: ClarusEnv instance (already constructed, reused across episodes).
         client: OpenAI client for LLM calls.
-        task_name: Task name (deductive_liability, abductive_conflict, adversarial_fabrication).
+        task_name: Task name.
         seed: Deterministic seed for the episode generator.
 
     Returns:
@@ -361,13 +359,10 @@ async def main() -> None:
     from server.schema import create_tables
     from data.setup import load_all
 
-    _require_api_key()
+    _require_token()
 
-    # Build OpenAI client — use standard OpenAI endpoint unless overridden
-    client_kwargs: dict = {"api_key": OPENAI_API_KEY}
-    if _base_url_override:
-        client_kwargs["base_url"] = _base_url_override
-    client = OpenAI(**client_kwargs)
+    # Build OpenAI client pointed at API_BASE_URL, authenticated with HF_TOKEN
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     # Build reference DB once; reused across all episodes
     ref_db = sqlite3.connect(":memory:", check_same_thread=False)

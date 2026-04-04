@@ -38,9 +38,11 @@ endpoints:
   step:  POST /step
   state: GET  /state
 inference:
-  api_key_env: OPENAI_API_KEY
-  default_model: gpt-4o
   script: inference.py
+  env_vars:
+    API_BASE_URL: "https://router.huggingface.co/v1"
+    MODEL_NAME: "Qwen/Qwen2.5-72B-Instruct"
+    HF_TOKEN: "<your HuggingFace API token>"
 runtime:
   min_python: "3.11"
   max_memory_gb: 8
