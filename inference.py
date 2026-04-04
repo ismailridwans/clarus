@@ -31,6 +31,16 @@ from typing import List, Optional
 from openai import OpenAI
 
 # ------------------------------------------------------------------
+# Load .env file if present (local testing only — never committed)
+# In production (HuggingFace Space) variables come from Space secrets.
+# ------------------------------------------------------------------
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # reads .env in the current directory if it exists
+except ImportError:
+    pass  # dotenv not installed — fall back to shell environment only
+
+# ------------------------------------------------------------------
 # Configuration — read exclusively from environment variables
 # ------------------------------------------------------------------
 
