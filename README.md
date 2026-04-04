@@ -1,3 +1,18 @@
+---
+title: Clarus
+emoji: 🏥
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+tags:
+  - openenv
+  - reinforcement-learning
+  - healthcare
+  - billing
+  - customer-service
+---
+
 # Clarus
 ## Healthcare Billing Dispute & Patient Advocacy Arena
 
