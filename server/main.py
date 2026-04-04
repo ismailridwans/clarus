@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 
 from data.setup import load_all
 from server.env import ClarusEnv
@@ -72,6 +72,9 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 
@@ -120,10 +123,6 @@ async def root() -> HTMLResponse:
     .get  { background: #15803d; color: #bbf7d0; }
     .path { color: #e2e8f0; font-family: monospace; }
     .desc { color: #64748b; font-size: 0.78rem; margin-left: auto; }
-    .btn  { display: block; text-align: center; background: #3b82f6; color: #fff;
-            text-decoration: none; padding: 0.85rem; border-radius: 10px;
-            font-weight: 700; font-size: 0.95rem; transition: background 0.2s; }
-    .btn:hover { background: #2563eb; }
   </style>
 </head>
 <body>
@@ -165,14 +164,8 @@ async def root() -> HTMLResponse:
         <span class="path">/state</span>
         <span class="desc">Current environment state</span>
       </div>
-      <div class="ep">
-        <span class="method get">GET</span>
-        <span class="path">/docs</span>
-        <span class="desc">Interactive API documentation</span>
-      </div>
     </div>
 
-    <a class="btn" href="/docs">Open Interactive API Docs →</a>
   </div>
 </body>
 </html>
