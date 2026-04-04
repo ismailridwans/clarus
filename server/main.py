@@ -80,6 +80,24 @@ app = FastAPI(
 # ------------------------------------------------------------------
 
 
+@app.get("/")
+async def root() -> Dict[str, Any]:
+    """Health check and environment info."""
+    return {
+        "name": "Clarus",
+        "version": "1.0.0",
+        "description": "Healthcare Billing Dispute & Patient Advocacy OpenEnv environment",
+        "status": "running",
+        "tasks": ["deductive_liability", "abductive_conflict", "adversarial_fabrication"],
+        "endpoints": {
+            "reset": "POST /reset",
+            "step": "POST /step",
+            "state": "GET /state",
+            "docs": "GET /docs",
+        },
+    }
+
+
 @app.post("/reset", response_model=ResetResponse)
 async def reset(request: ResetRequest = ResetRequest()) -> ResetResponse:
     """Start a new episode.
