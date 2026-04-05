@@ -11,12 +11,15 @@ DB is loaded once at startup and shared across all episodes.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import asynccontextmanager
 from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from data.setup import load_all
 from server.env import ClarusEnv
@@ -91,10 +94,12 @@ app.add_middleware(
 # ------------------------------------------------------------------
 
 
-@app.get("/")
-async def root() -> Dict[str, Any]:
-    """Health check — returns 200 so submission pings pass."""
-    return {"status": "ok", "name": "clarus", "version": "1.0.0"}
+@app.get("/", response_class=HTMLResponse)
+async def root() -> HTMLResponse:
+    """Serve the interactive landing page."""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    with open(html_path, "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
 
 
 @app.post("/reset", response_model=ResetResponse)

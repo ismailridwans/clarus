@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Clarus — Healthcare Billing Dispute RL Environment</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --accent: #2ea8d5;
+    --accent2: #3fb950;
+    --accent3: #f0883e;
+    --accent4: #f85149;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --card: #1c2128;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; }
+
+  /* NAV */
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 40px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 100; }
+  .nav-brand { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.5px; }
+  .nav-brand span { color: var(--accent); }
+  .nav-links { display: flex; gap: 24px; }
+  .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.875rem; transition: color 0.2s; }
+  .nav-links a:hover { color: var(--text); }
+  .badge { background: var(--accent); color: #000; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; letter-spacing: 0.5px; }
+
+  /* HERO */
+  .hero { padding: 80px 40px 60px; text-align: center; max-width: 860px; margin: 0 auto; }
+  .hero-tag { display: inline-block; background: rgba(46,168,213,0.12); border: 1px solid rgba(46,168,213,0.3); color: var(--accent); font-size: 0.78rem; font-weight: 600; padding: 4px 14px; border-radius: 20px; margin-bottom: 24px; letter-spacing: 0.5px; text-transform: uppercase; }
+  h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -1px; line-height: 1.1; margin-bottom: 20px; }
+  h1 em { color: var(--accent); font-style: normal; }
+  .hero-desc { font-size: 1.1rem; color: var(--muted); max-width: 600px; margin: 0 auto 36px; }
+  .hero-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn { padding: 10px 22px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; text-decoration: none; display: inline-block; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover { background: #3bbfe8; }
+  .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* STATUS BAR */
+  .status-bar { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 12px 40px; display: flex; gap: 32px; justify-content: center; flex-wrap: wrap; }
+  .status-item { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); box-shadow: 0 0 6px var(--accent2); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .status-val { color: var(--text); font-weight: 600; }
+
+  /* SECTIONS */
+  section { max-width: 1100px; margin: 0 auto; padding: 60px 40px; }
+  .section-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 8px; }
+  .section-sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 32px; }
+
+  /* TASK CARDS */
+  .tasks-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+  .task-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; transition: border-color 0.2s, transform 0.2s; cursor: pointer; }
+  .task-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .task-card.selected { border-color: var(--accent); background: rgba(46,168,213,0.06); }
+  .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .task-name { font-weight: 700; font-size: 1rem; }
+  .difficulty { font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .easy { background: rgba(63,185,80,0.15); color: var(--accent2); }
+  .medium { background: rgba(240,136,62,0.15); color: var(--accent3); }
+  .hard { background: rgba(248,81,73,0.15); color: var(--accent4); }
+  .task-desc { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; line-height: 1.5; }
+  .task-meta { display: flex; gap: 16px; flex-wrap: wrap; }
+  .task-meta-item { font-size: 0.78rem; color: var(--muted); }
+  .task-meta-item strong { color: var(--text); }
+
+  /* DEMO */
+  .demo-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .demo-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: gap; gap: 12px; }
+  .demo-header-left { display: flex; align-items: center; gap: 12px; }
+  .demo-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-sm { padding: 6px 14px; font-size: 0.8rem; border-radius: 6px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); transition: all 0.2s; }
+  .btn-sm:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-sm.primary { background: var(--accent); color: #000; border-color: var(--accent); }
+  .btn-sm.primary:hover:not(:disabled) { background: #3bbfe8; color: #000; }
+  .btn-sm.danger { background: rgba(248,81,73,0.15); color: var(--accent4); border-color: rgba(248,81,73,0.3); }
+  .demo-body { display: grid; grid-template-columns: 1fr 1fr; }
+  @media(max-width:700px){ .demo-body { grid-template-columns: 1fr; } }
+  .demo-panel { padding: 20px; }
+  .demo-panel + .demo-panel { border-left: 1px solid var(--border); }
+  .panel-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 12px; }
+
+  /* OBSERVATION */
+  .obs-field { margin-bottom: 10px; }
+  .obs-key { font-size: 0.75rem; color: var(--muted); margin-bottom: 2px; }
+  .obs-val { font-size: 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; word-break: break-word; }
+  .obs-val.complaint { color: #ffe082; }
+  .state-calm { color: var(--accent2); }
+  .state-frustrated { color: var(--accent3); }
+  .state-distressed { color: var(--accent4); }
+
+  /* ACTION PICKER */
+  .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
+  .action-btn { padding: 6px 8px; font-size: 0.75rem; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); transition: all 0.15s; text-align: left; }
+  .action-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .action-btn.active { border-color: var(--accent); background: rgba(46,168,213,0.1); color: var(--accent); }
+
+  /* TERMINAL */
+  .terminal { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-family: 'Fira Code', 'Cascadia Code', 'Courier New', monospace; font-size: 0.78rem; max-height: 320px; overflow-y: auto; }
+  .term-line { margin-bottom: 4px; line-height: 1.5; }
+  .term-start { color: #79c0ff; }
+  .term-step { color: var(--text); }
+  .term-end { color: var(--accent2); }
+  .term-err { color: var(--accent4); }
+  .term-info { color: var(--muted); }
+  .term-reward-pos { color: var(--accent2); }
+  .term-reward-neg { color: var(--accent4); }
+  .score-bar-wrap { margin-top: 12px; }
+  .score-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; display: flex; justify-content: space-between; }
+  .score-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .score-fill { height: 100%; background: var(--accent2); border-radius: 3px; transition: width 0.5s; }
+
+  /* API REFERENCE */
+  .api-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .api-table th { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+  .api-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .api-table tr:last-child td { border-bottom: none; }
+  .method { font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; font-family: monospace; }
+  .method.post { background: rgba(63,185,80,0.15); color: var(--accent2); }
+  .method.get  { background: rgba(46,168,213,0.15); color: var(--accent); }
+  .endpoint-path { font-family: monospace; font-size: 0.85rem; color: var(--text); }
+  .endpoint-desc { color: var(--muted); font-size: 0.82rem; }
+  code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-family: monospace; font-size: 0.82rem; color: #79c0ff; }
+
+  /* FOOTER */
+  footer { border-top: 1px solid var(--border); padding: 32px 40px; text-align: center; color: var(--muted); font-size: 0.82rem; }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  /* SPINNER */
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand"><span>Clarus</span> RL</div>
+  <div class="nav-links">
+    <a href="#tasks">Tasks</a>
+    <a href="#demo">Live Demo</a>
+    <a href="#api">API</a>
+    <span class="badge">OpenEnv</span>
+  </div>
+</nav>
+
+<div class="hero">
+  <div class="hero-tag">OpenEnv Hackathon 2026</div>
+  <h1>Healthcare Billing Dispute<br/><em>RL Environment</em></h1>
+  <p class="hero-desc">
+    A multi-task reinforcement learning environment where AI agents investigate
+    billing errors, identify responsible parties, and resolve patient disputes
+    across three escalating difficulty levels.
+  </p>
+  <div class="hero-buttons">
+    <a href="#demo" class="btn btn-primary">Try Live Demo</a>
+    <a href="#api" class="btn btn-outline">API Reference</a>
+  </div>
+</div>
+
+<div class="status-bar">
+  <div class="status-item"><div class="dot"></div> Environment: <span class="status-val" id="srv-status">Checking...</span></div>
+  <div class="status-item">Version: <span class="status-val">1.0.0</span></div>
+  <div class="status-item">Tasks: <span class="status-val">3</span></div>
+  <div class="status-item">Interface: <span class="status-val">OpenEnv</span></div>
+  <div class="status-item">Endpoint: <span class="status-val" id="srv-endpoint">—</span></div>
+</div>
+
+<!-- TASKS -->
+<section id="tasks">
+  <div class="section-title">Three Escalating Tasks</div>
+  <div class="section-sub">Each task requires a different investigation strategy and reasoning depth</div>
+  <div class="tasks-grid">
+    <div class="task-card selected" onclick="selectTask('deductive_liability', this)">
+      <div class="task-header">
+        <div class="task-name">Deductive Liability</div>
+        <span class="difficulty easy">Easy</span>
+      </div>
+      <div class="task-desc">
+        A patient receives a bill that doesn't match their EOB. The agent must gather records,
+        identify the billing system error, and issue the correct refund.
+      </div>
+      <div class="task-meta">
+        <div class="task-meta-item">Responsible party: <strong>billing_system_error</strong></div>
+        <div class="task-meta-item">Resolution: <strong>refund</strong></div>
+        <div class="task-meta-item">Grader checks: <strong>17</strong></div>
+      </div>
+    </div>
+    <div class="task-card" onclick="selectTask('abductive_conflict', this)">
+      <div class="task-header">
+        <div class="task-name">Abductive Conflict</div>
+        <span class="difficulty medium">Medium</span>
+      </div>
+      <div class="task-desc">
+        Conflicting signals between EOB, provider records, and NCCI rules.
+        The agent must reason abductively to identify the insurer's wrongful denial
+        and file a modifier exception appeal.
+      </div>
+      <div class="task-meta">
+        <div class="task-meta-item">Responsible party: <strong>insurer_wrong</strong></div>
+        <div class="task-meta-item">Resolution: <strong>appeal</strong></div>
+        <div class="task-meta-item">Grader checks: <strong>22</strong></div>
+      </div>
+    </div>
+    <div class="task-card" onclick="selectTask('adversarial_fabrication', this)">
+      <div class="task-header">
+        <div class="task-name">Adversarial Fabrication</div>
+        <span class="difficulty hard">Hard</span>
+      </div>
+      <div class="task-desc">
+        The provider has submitted a fabricated Good Faith Estimate. After filing an
+        NSA dispute, the agent faces 3 adversarial counter-arguments it must reject
+        with cited evidence.
+      </div>
+      <div class="task-meta">
+        <div class="task-meta-item">Responsible party: <strong>provider_fraud</strong></div>
+        <div class="task-meta-item">Resolution: <strong>nsa_dispute</strong></div>
+        <div class="task-meta-item">Grader checks: <strong>28</strong></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DEMO -->
+<section id="demo">
+  <div class="section-title">Live Environment Demo</div>
+  <div class="section-sub">Interact with the actual API — calls go to the live server</div>
+  <div class="demo-container">
+    <div class="demo-header">
+      <div class="demo-header-left">
+        <span style="font-weight:700;font-size:0.9rem">Interactive Trial</span>
+        <span id="demo-task-badge" style="font-size:0.75rem;color:var(--muted)">deductive_liability</span>
+      </div>
+      <div class="demo-controls">
+        <button class="btn-sm primary" id="btn-reset" onclick="doReset()">↺ Reset Episode</button>
+        <button class="btn-sm" id="btn-auth" onclick="doStep('authenticate_patient',{})" disabled>Authenticate Patient</button>
+        <button class="btn-sm danger" onclick="clearDemo()">Clear</button>
+      </div>
+    </div>
+    <div class="demo-body">
+      <!-- LEFT: observation -->
+      <div class="demo-panel">
+        <div class="panel-label">Current Observation</div>
+        <div id="obs-panel">
+          <div style="color:var(--muted);font-size:0.85rem;padding:20px 0">Click "Reset Episode" to start a new case.</div>
+        </div>
+        <!-- action picker -->
+        <div id="action-section" style="display:none;margin-top:16px">
+          <div class="panel-label">Execute Action</div>
+          <div class="action-grid" id="action-grid"></div>
+          <button class="btn-sm primary" style="width:100%" id="btn-step" onclick="doSelectedAction()">Execute Selected Action</button>
+        </div>
+      </div>
+      <!-- RIGHT: terminal log -->
+      <div class="demo-panel">
+        <div class="panel-label">Step Log</div>
+        <div class="terminal" id="terminal">
+          <div class="term-line term-info"># Waiting for episode reset...</div>
+        </div>
+        <div id="score-section" style="display:none;margin-top:12px">
+          <div class="score-bar-wrap">
+            <div class="score-label"><span>Episode Score</span><span id="score-text">0.00</span></div>
+            <div class="score-bar"><div class="score-fill" id="score-fill" style="width:0%"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- API REFERENCE -->
+<section id="api">
+  <div class="section-title">API Reference</div>
+  <div class="section-sub">Standard OpenEnv interface — three endpoints</div>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+    <table class="api-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Path</th>
+          <th>Description</th>
+          <th>Body / Params</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="method post">POST</span></td>
+          <td class="endpoint-path">/reset</td>
+          <td class="endpoint-desc">Start a new episode. Returns initial observation.</td>
+          <td><code>task_name</code>, <code>seed</code> (optional)</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span></td>
+          <td class="endpoint-path">/step</td>
+          <td class="endpoint-desc">Execute one action. Returns observation, reward, done, info.</td>
+          <td><code>action.action_type</code>, <code>action.parameters</code></td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="endpoint-path">/state</td>
+          <td class="endpoint-desc">Return current episode state without advancing.</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="endpoint-path">/health</td>
+          <td class="endpoint-desc">Health check. Returns <code>{"status":"ok"}</code>.</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div style="margin-top:24px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px">
+    <div class="panel-label" style="margin-bottom:12px">Example: Reset + First Step</div>
+    <div class="terminal" style="max-height:none">
+<div class="term-line term-info"># Reset a deductive_liability episode</div>
+<div class="term-line">POST /reset</div>
+<div class="term-line" style="color:#79c0ff">{"task_name": "deductive_liability", "seed": 1101}</div>
+<div class="term-line">&nbsp;</div>
+<div class="term-line term-info"># First action — authenticate the patient</div>
+<div class="term-line">POST /step</div>
+<div class="term-line" style="color:#79c0ff">{"action": {"action_type": "authenticate_patient", "parameters": {}}}</div>
+<div class="term-line">&nbsp;</div>
+<div class="term-line term-info"># Response</div>
+<div class="term-line" style="color:var(--accent2)">{"reward": 0.05, "done": false, "observation": {"step_number": 1, ...}}</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Built for the <a href="https://huggingface.co" target="_blank">HuggingFace</a> OpenEnv Hackathon 2026 &nbsp;·&nbsp;
+  <a href="https://github.com/ismailridwans/clarus" target="_blank">GitHub</a> &nbsp;·&nbsp;
+  Environment: <strong>Clarus v1.0.0</strong>
+</footer>
+
+<script>
+const BASE = '';  // same origin
+let currentTask = 'deductive_liability';
+let selectedAction = null;
+let episodeActive = false;
+let stepCount = 0;
+let lastResult = null;
+let collectedArtifacts = {};
+
+const ACTIONS = [
+  {a:'authenticate_patient', p:{}, label:'Authenticate Patient'},
+  {a:'fetch_claim_record', p:{}, label:'Fetch Claim Record'},
+  {a:'fetch_eob', p:{}, label:'Fetch EOB'},
+  {a:'fetch_payment_ledger', p:{}, label:'Fetch Payment Ledger'},
+  {a:'fetch_plan_document', p:{}, label:'Fetch Plan Document'},
+  {a:'fetch_provider_record', p:{}, label:'Fetch Provider Record'},
+  {a:'fetch_facility_record', p:{}, label:'Fetch Facility Record'},
+  {a:'fetch_payment_processor_log', p:{}, label:'Fetch Processor Log'},
+  {a:'lookup_procedure_code', p:{}, label:'Lookup Procedure Code'},
+  {a:'check_regulatory_rule', p:{rule_id:'NSA-BALANCE-BILLING'}, label:'Check Regulatory Rule'},
+  {a:'check_deadline', p:{deadline_type:'appeal'}, label:'Check Deadline'},
+  {a:'write_diagnosis', p:{responsible_party:'billing_system_error', evidence_artifact_ids:[], diagnosis_text:'Billing error identified.'}, label:'Write Diagnosis'},
+  {a:'draft_resolution', p:{resolution_type:'refund', refund_amount:0, summary:'Billing error refund'}, label:'Draft Resolution'},
+  {a:'submit_resolution', p:{draft_artifact_id:0}, label:'Submit Resolution'},
+  {a:'send_patient_communication', p:{message_type:'outcome', message_text:'Your case has been resolved.'}, label:'Send Communication'},
+  {a:'notify_provider', p:{notification_type:'dispute_filed', message:'Dispute filed.'}, label:'Notify Provider'},
+  {a:'write_audit_entry', p:{summary:'Case resolved.'}, label:'Write Audit Entry'},
+  {a:'close_case', p:{outcome_code:'resolved'}, label:'Close Case'},
+];
+
+function selectTask(name, el) {
+  currentTask = name;
+  document.querySelectorAll('.task-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById('demo-task-badge').textContent = name;
+}
+
+async function checkStatus() {
+  try {
+    const r = await fetch(BASE + '/health');
+    const d = await r.json();
+    document.getElementById('srv-status').textContent = d.status === 'ok' ? 'Running' : 'Unknown';
+    document.getElementById('srv-endpoint').textContent = window.location.host;
+  } catch(e) {
+    document.getElementById('srv-status').textContent = 'Offline';
+  }
+}
+
+function termLine(text, cls='term-step') {
+  const t = document.getElementById('terminal');
+  const d = document.createElement('div');
+  d.className = 'term-line ' + cls;
+  d.textContent = text;
+  t.appendChild(d);
+  t.scrollTop = t.scrollHeight;
+}
+
+function clearDemo() {
+  document.getElementById('terminal').innerHTML = '<div class="term-line term-info"># Log cleared. Click Reset Episode to start.</div>';
+  document.getElementById('obs-panel').innerHTML = '<div style="color:var(--muted);font-size:0.85rem;padding:20px 0">Click "Reset Episode" to start a new case.</div>';
+  document.getElementById('action-section').style.display = 'none';
+  document.getElementById('score-section').style.display = 'none';
+  document.getElementById('btn-auth').disabled = true;
+  episodeActive = false;
+  stepCount = 0;
+  collectedArtifacts = {};
+}
+
+async function doReset() {
+  const btn = document.getElementById('btn-reset');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Resetting...';
+  collectedArtifacts = {};
+  stepCount = 0;
+
+  try {
+    const r = await fetch(BASE + '/reset', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({task_name: currentTask})
+    });
+    const d = await r.json();
+    episodeActive = true;
+
+    document.getElementById('terminal').innerHTML = '';
+    termLine(`[START] task=${d.task_name} seed=${d.seed}`, 'term-start');
+
+    renderObs(d.observation, d.task_name, d.seed);
+    document.getElementById('action-section').style.display = 'block';
+    document.getElementById('score-section').style.display = 'none';
+    document.getElementById('btn-auth').disabled = false;
+    renderActionGrid();
+  } catch(e) {
+    termLine('ERROR: ' + e.message, 'term-err');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '↺ Reset Episode';
+}
+
+async function doStep(actionType, params) {
+  if (!episodeActive) return;
+  stepCount++;
+
+  const body = {action: {action_type: actionType, parameters: params}};
+  try {
+    const r = await fetch(BASE + '/step', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    lastResult = d;
+
+    const reward = d.reward || 0;
+    const done = d.done;
+    const err = d.observation?.last_action_error;
+    const rewardStr = (reward >= 0 ? '+' : '') + reward.toFixed(2);
+    const rewardCls = reward > 0 ? 'term-reward-pos' : reward < 0 ? 'term-reward-neg' : '';
+
+    let line = `[STEP] step=${stepCount} action=${actionType} reward=${rewardStr} done=${done}`;
+    if (err) line += ` error=${err.substring(0,60)}`;
+    termLine(line, 'term-step ' + rewardCls);
+
+    // track artifact IDs
+    const res = d.observation?.last_action_result;
+    if (res?.artifact_id) {
+      collectedArtifacts[actionType] = res.artifact_id;
+    }
+
+    if (done) {
+      const score = d.info?.episode_score || 0;
+      termLine(`[END] success=${score >= 0.5} steps=${stepCount} score=${score.toFixed(3)}`, 'term-end');
+      episodeActive = false;
+      document.getElementById('action-section').style.display = 'none';
+      document.getElementById('score-section').style.display = 'block';
+      document.getElementById('score-text').textContent = score.toFixed(3);
+      document.getElementById('score-fill').style.width = (score * 100) + '%';
+      document.getElementById('score-fill').style.background = score >= 0.7 ? 'var(--accent2)' : score >= 0.4 ? 'var(--accent3)' : 'var(--accent4)';
+    } else {
+      renderObs(d.observation, currentTask, null);
+      renderActionGrid();
+    }
+  } catch(e) {
+    termLine('ERROR: ' + e.message, 'term-err');
+  }
+}
+
+function doSelectedAction() {
+  if (!selectedAction) return;
+  const action = ACTIONS.find(a => a.a === selectedAction);
+  if (!action) return;
+
+  // Auto-fill known artifact IDs
+  let params = JSON.parse(JSON.stringify(action.p));
+
+  if (action.a === 'submit_resolution') {
+    params.draft_artifact_id = collectedArtifacts['draft_resolution'] || 0;
+  }
+  if (action.a === 'write_diagnosis') {
+    const ids = Object.values(collectedArtifacts).filter(v => typeof v === 'number').slice(0, 3);
+    params.evidence_artifact_ids = ids;
+  }
+
+  doStep(action.a, params);
+}
+
+function renderActionGrid() {
+  const grid = document.getElementById('action-grid');
+  grid.innerHTML = '';
+  ACTIONS.forEach(a => {
+    const btn = document.createElement('button');
+    btn.className = 'action-btn' + (a.a === selectedAction ? ' active' : '');
+    btn.textContent = a.label;
+    btn.onclick = () => {
+      selectedAction = a.a;
+      document.querySelectorAll('.action-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    };
+    grid.appendChild(btn);
+  });
+}
+
+function renderObs(obs, task, seed) {
+  const stateClass = obs.patient_emotional_state === 'calm' ? 'state-calm' :
+                     obs.patient_emotional_state === 'frustrated' ? 'state-frustrated' : 'state-distressed';
+
+  const apiPct = Math.round((obs.api_calls_used / obs.api_call_budget) * 100);
+
+  document.getElementById('obs-panel').innerHTML = `
+    <div class="obs-field">
+      <div class="obs-key">Patient</div>
+      <div class="obs-val">${obs.patient_name} &nbsp;<span class="${stateClass}" style="font-size:0.8rem">(${obs.patient_emotional_state})</span></div>
+    </div>
+    <div class="obs-field">
+      <div class="obs-key">Complaint</div>
+      <div class="obs-val complaint">${obs.patient_complaint}</div>
+    </div>
+    <div class="obs-field">
+      <div class="obs-key">Step</div>
+      <div class="obs-val">${obs.step_number} &nbsp;·&nbsp; API calls: ${obs.api_calls_used} / ${obs.api_call_budget} (${apiPct}%)</div>
+    </div>
+    ${obs.last_action_type ? `
+    <div class="obs-field">
+      <div class="obs-key">Last Action → Reward</div>
+      <div class="obs-val">${obs.last_action_type} &nbsp;→&nbsp; <span style="color:${obs.step_reward>=0?'var(--accent2)':'var(--accent4)'}">${obs.step_reward>=0?'+':''}${obs.step_reward?.toFixed(2)}</span></div>
+    </div>` : ''}
+    ${obs.last_action_error ? `
+    <div class="obs-field">
+      <div class="obs-key">Error</div>
+      <div class="obs-val" style="color:var(--accent4);font-size:0.8rem">${obs.last_action_error}</div>
+    </div>` : ''}
+    ${obs.rate_limited_tools?.length ? `
+    <div class="obs-field">
+      <div class="obs-key">Rate Limited</div>
+      <div class="obs-val" style="font-size:0.8rem;color:var(--accent3)">${obs.rate_limited_tools.join(', ')}</div>
+    </div>` : ''}
+  `;
+}
+
+// Init
+checkStatus();
+renderActionGrid();
+setInterval(checkStatus, 30000);
+</script>
+</body>
+</html>
