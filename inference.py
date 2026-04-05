@@ -47,6 +47,7 @@ except ImportError:
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN: str = os.getenv("HF_TOKEN", "")
+_base_url_override: Optional[str] = os.getenv("API_BASE_URL") if os.getenv("API_BASE_URL", "https://router.huggingface.co/v1") != "https://router.huggingface.co/v1" else None
 
 BENCHMARK = "clarus"
 TEMPERATURE = 0.1
@@ -119,7 +120,7 @@ SYSTEM_PROMPT = textwrap.dedent(
 # ------------------------------------------------------------------
 
 
-def _require_token() -> None:
+def _require_api_key() -> None:
     """Exit with a clear error if HF_TOKEN is not set.
 
     Raises:
@@ -369,7 +370,7 @@ async def main() -> None:
     from server.schema import create_tables
     from data.setup import load_all
 
-    _require_token()
+    _require_api_key()
 
     # Build OpenAI client pointed at API_BASE_URL, authenticated with HF_TOKEN
     client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)

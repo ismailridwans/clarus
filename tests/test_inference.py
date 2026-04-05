@@ -1,11 +1,11 @@
 """Live OpenAI API integration tests for Clarus.
 
 These tests run a real gpt-4o agent against the environment.  They are
-SKIPPED automatically when OPENAI_API_KEY is not set in the environment,
+SKIPPED automatically when HF_TOKEN is not set in the environment,
 so they never break CI that lacks the key.
 
 Run manually:
-    export OPENAI_API_KEY=sk-...
+    export HF_TOKEN=hf_...
     pytest tests/test_inference.py -v -s
 
 What these tests verify:
@@ -27,10 +27,10 @@ import sqlite3
 
 import pytest
 
-# Skip every test in this module when OPENAI_API_KEY is absent.
+# Skip every test in this module when HF_TOKEN is absent.
 pytestmark = pytest.mark.skipif(
-    not os.getenv("OPENAI_API_KEY"),
-    reason="OPENAI_API_KEY not set — skipping live API tests",
+    not os.getenv("HF_TOKEN"),
+    reason="HF_TOKEN not set — skipping live API tests",
 )
 
 
@@ -56,16 +56,16 @@ def _make_ref_db() -> sqlite3.Connection:
 
 
 def _make_client():
-    """Build an OpenAI client from OPENAI_API_KEY.
+    """Build an OpenAI client from HF_TOKEN.
 
     Returns:
         openai.OpenAI instance pointing at the standard OpenAI endpoint,
         or at API_BASE_URL if that env var is set.
     """
     from openai import OpenAI
-    from inference import OPENAI_API_KEY, _base_url_override
+    from inference import HF_TOKEN, _base_url_override
 
-    kwargs: dict = {"api_key": OPENAI_API_KEY}
+    kwargs: dict = {"api_key": HF_TOKEN}
     if _base_url_override:
         kwargs["base_url"] = _base_url_override
     return OpenAI(**kwargs)
@@ -150,13 +150,13 @@ async def test_live_episode_always_terminates():
     """Episode must always reach done=True (not hang at step limit)."""
     from server.env import ClarusEnv
     from server.models import ClarusAction
-    from inference import OPENAI_API_KEY, MODEL_NAME, SYSTEM_PROMPT, get_model_action, _base_url_override
+    from inference import HF_TOKEN, MODEL_NAME, SYSTEM_PROMPT, get_model_action, _base_url_override
     from openai import OpenAI
 
     ref_db = _make_ref_db()
     env = ClarusEnv(ref_db=ref_db)
 
-    kwargs: dict = {"api_key": OPENAI_API_KEY}
+    kwargs: dict = {"api_key": HF_TOKEN}
     if _base_url_override:
         kwargs["base_url"] = _base_url_override
     client = OpenAI(**kwargs)
@@ -200,7 +200,7 @@ async def test_live_require_api_key_exits_cleanly(monkeypatch):
     from unittest.mock import patch
 
     # Temporarily clear the key
-    monkeypatch.setattr("inference.OPENAI_API_KEY", "")
+    monkeypatch.setattr("inference.HF_TOKEN", "")
 
     from inference import _require_api_key
 

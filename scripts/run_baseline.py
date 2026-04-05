@@ -165,7 +165,7 @@ async def main(model: str, split: str) -> None:
     from server.env import ClarusEnv
 
     api_base = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-    api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+    api_key = os.getenv("HF_TOKEN", "")
     model = os.getenv("MODEL_NAME", model)
 
     client = OpenAI(base_url=api_base, api_key=api_key)

@@ -153,7 +153,7 @@ Committed bundles in `data/bundles/` cover all 15 test seeds. Docker builds offl
 # Local development
 pip install -r requirements.txt
 python data/download.py        # fetch CMS data or use bundles
-python data/setup.py           # verify reference DB
+PYTHONPATH=. python data/setup.py  # verify reference DB
 uvicorn server.main:app --port 7860
 
 # Run tests
@@ -161,7 +161,9 @@ pytest tests/test_episodes.py -v  # all 3 tasks score 1.0
 
 # Docker
 docker build -t clarus .
-docker run -p 7860:7860 clarus
+docker run -p 7860:7860 -e HF_TOKEN=hf_... clarus
+# Or use the live HF Space:
+# https://ismailridwans-clarus.hf.space
 ```
 
 ---
@@ -170,7 +172,10 @@ docker run -p 7860:7860 clarus
 
 Run against dev seeds before submission:
 ```bash
-python scripts/run_baseline.py --model gpt-4o --seeds dev
+export HF_TOKEN=hf_...
+export API_BASE_URL=https://router.huggingface.co/v1
+export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
+python inference.py
 ```
 
 | Task | Difficulty | Checks | GPT-4o estimate |

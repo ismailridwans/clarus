@@ -17,7 +17,6 @@ from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from data.setup import load_all
 from server.env import ClarusEnv
