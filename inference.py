@@ -44,9 +44,9 @@ except ImportError:
 # Configuration — read exclusively from environment variables
 # ------------------------------------------------------------------
 
-API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME: str = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN: str = os.getenv("HF_TOKEN", "")
+API_BASE_URL: str = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME: str = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+HF_TOKEN: str = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
 _base_url_override: Optional[str] = os.getenv("API_BASE_URL") if os.getenv("API_BASE_URL", "https://router.huggingface.co/v1") != "https://router.huggingface.co/v1" else None
 
 BENCHMARK = "clarus"
@@ -243,7 +243,7 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={steps} "
-        f"score={score:.3f} rewards={rewards_str}",
+        f"rewards={rewards_str}",
         flush=True,
     )
 
