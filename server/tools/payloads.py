@@ -223,7 +223,7 @@ def _payment_ledger(params: EpisodeParams) -> Dict[str, Any]:
 
 def _plan_document(params: EpisodeParams) -> Dict[str, Any]:
     """Payload for fetch_plan_document — the insurer's plan rules."""
-    return {
+    result: Dict[str, Any] = {
         "plan_id": params.plan_id,
         "deductible_individual": params.deductible,
         "deductible_met": params.deductible_met,
@@ -238,6 +238,11 @@ def _plan_document(params: EpisodeParams) -> Dict[str, Any]:
         "appeal_deadline_days": 30,
         "effective_date": "2026-01-01",
     }
+    # For NSA disputes, include the Qualifying Payment Amount (median in-network rate)
+    # so the agent can cite it in the draft_resolution.
+    if params.task_name == "adversarial_fabrication":
+        result["qualifying_payment_amount"] = params.qpa_amount
+    return result
 
 
 def _code_lookup(

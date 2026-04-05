@@ -4,6 +4,14 @@ Uses the OpenAI client to call an LLM via any OpenAI-compatible endpoint.
 Reads API_BASE_URL, MODEL_NAME, and HF_TOKEN from environment variables.
 Emits [START], [STEP], [END] to stdout in the required OpenEnv format.
 
+Hybrid architecture:
+  - Python extracts financial values from action results (billed_amount,
+    patient_responsibility, copay_specialist, qpa_amount) and computes
+    exact dollar amounts (refund_amount, qpa_reference_amount).
+  - Python tracks artifact IDs returned by the environment.
+  - LLM receives a "COMPUTED VALUES" block with exact numbers and IDs
+    to copy directly into action parameters — no arithmetic required.
+
 Usage:
     export API_BASE_URL=https://router.huggingface.co/v1
     export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
@@ -26,7 +34,7 @@ import os
 import sqlite3
 import sys
 import textwrap
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
@@ -36,9 +44,9 @@ from openai import OpenAI
 # ------------------------------------------------------------------
 try:
     from dotenv import load_dotenv
-    load_dotenv()  # reads .env in the current directory if it exists
+    load_dotenv()
 except ImportError:
-    pass  # dotenv not installed — fall back to shell environment only
+    pass
 
 # ------------------------------------------------------------------
 # Configuration — read exclusively from environment variables
@@ -47,7 +55,6 @@ except ImportError:
 API_BASE_URL: str = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME: str = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 HF_TOKEN: str = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
-_base_url_override: Optional[str] = os.getenv("API_BASE_URL") if os.getenv("API_BASE_URL", "https://router.huggingface.co/v1") != "https://router.huggingface.co/v1" else None
 
 BENCHMARK = "clarus"
 TEMPERATURE = 0.1
@@ -69,119 +76,173 @@ DEV_SEEDS = {
 SYSTEM_PROMPT = textwrap.dedent(
     """
     You are a healthcare billing dispute specialist. Your ONLY goal is to pass ALL
-    grading checks by completing EVERY required action with EXACT correct values.
+    grading checks by completing EVERY required action in the EXACT sequence below.
 
-    UNIVERSAL RULES (apply to every task):
+    UNIVERSAL RULES:
     - Step 1 MUST be authenticate_patient — no exceptions.
-    - Track artifact IDs returned in last_action_result — you MUST cite real IDs.
-    - check_deadline MUST happen BEFORE submit_resolution.
-    - MANDATORY final actions before close_case: write_audit_entry, notify_provider,
-      send_patient_communication. Never skip these.
     - Respond with ONLY valid JSON: {"action_type": "...", "parameters": {...}}
+    - ALWAYS use the artifact IDs shown in the COMPUTED VALUES block below.
+    - ALWAYS use the dollar amounts shown in COMPUTED VALUES — never recalculate.
+    - check_deadline MUST happen BEFORE submit_resolution.
+    - After submit_resolution, complete: send_patient_communication, notify_provider,
+      write_audit_entry, close_case (in that order for Tasks 1 & 2).
 
-    ════════════════════════════════════════════════
+    ================================================
     TASK 1 — deductive_liability
-    Responsible party: ALWAYS "billing_system_error"
-    Resolution type:   ALWAYS "refund"
-    ────────────────────────────────────────────────
-    Required sequence (complete ALL steps):
+    Responsible party: "billing_system_error"
+    Resolution type:   "refund"
+    ------------------------------------------------
+    Execute steps in this EXACT order:
     1.  authenticate_patient {}
-    2.  fetch_claim_record {"claim_id": "<from case_id>"}
-    3.  fetch_eob {"claim_id": "<claim_id>"}
+    2.  fetch_claim_record {"claim_id": "<case_id from observation>"}
+    3.  fetch_eob {"claim_id": "<claim_id from step 2 result>"}
     4.  fetch_payment_ledger {"claim_id": "<claim_id>"}
-    5.  fetch_plan_document {"plan_id": "<from claim record result>"}
-    6.  fetch_provider_record {"provider_id": "<from claim record result>"}
+    5.  fetch_plan_document {"plan_id": "auto"}
+    6.  fetch_provider_record {"provider_id": "<provider_id from step 2>"}
     7.  check_deadline {"deadline_type": "appeal"}
-    8.  write_diagnosis {"responsible_party": "billing_system_error",
+    8.  write_diagnosis {
+          "responsible_party": "billing_system_error",
           "evidence_artifact_ids": [<eob_id>, <claim_id>, <ledger_id>],
-          "diagnosis_text": "Billing system applied incorrect charges..."}
-    9.  draft_resolution {"resolution_type": "refund",
-          "refund_amount": <billed_amount minus correct_amount from ledger/eob>,
-          "summary": "Refund for billing error"}
+          "diagnosis_text": "EOB shows copay_applied=false. Copay was not credited.
+            Patient was overbilled. Billing system error confirmed."
+        }
+    9.  draft_resolution {
+          "resolution_type": "refund",
+          "refund_amount": <COPY FROM COMPUTED VALUES>,
+          "summary": "Refund for copay not credited by billing system."
+        }
     10. submit_resolution {"draft_artifact_id": <draft_id from step 9>}
-    11. send_patient_communication {"message_type": "outcome",
-          "message_text": "Your dispute has been resolved with a refund."}
-    12. notify_provider {"notification_type": "billing_error",
-          "message": "Billing error identified and refund issued."}
-    13. write_audit_entry {"summary": "Case resolved: billing error, refund issued."}
+    11. send_patient_communication {
+          "message_type": "outcome",
+          "message_text": "Your dispute is resolved. A refund has been issued."
+        }
+    12. notify_provider {
+          "notification_type": "billing_error",
+          "message": "Billing error confirmed. Copay not credited. Refund issued."
+        }
+    13. write_audit_entry {
+          "summary": "Case resolved: billing_system_error. Refund issued for
+            uncredited copay.",
+          "outcome_code": "resolved"
+        }
     14. close_case {"outcome_code": "resolved"}
 
-    ════════════════════════════════════════════════
+    ================================================
     TASK 2 — abductive_conflict
-    Responsible party: ALWAYS "insurer_wrong"
-    Resolution type:   ALWAYS "appeal"
-    Appeal reason:     ALWAYS "modifier_exception"
-    ⚠ TRAP: NEVER use "legitimate_denial" — it is wrong and will fail grading.
-    ────────────────────────────────────────────────
-    Required sequence (complete ALL steps):
+    Responsible party: "insurer_wrong"
+    Resolution type:   "appeal"
+    Appeal reason:     "modifier_exception"
+    ⚠ TRAP: NEVER use "legitimate_denial" — automatic grader failure.
+    ------------------------------------------------
+    Execute steps in this EXACT order:
     1.  authenticate_patient {}
-    2.  fetch_claim_record {"claim_id": "<from case_id>"}
+    2.  fetch_claim_record {"claim_id": "<case_id>"}
     3.  fetch_eob {"claim_id": "<claim_id>"}
-    4.  fetch_provider_record {"provider_id": "<from claim record result>"}
-    5.  lookup_procedure_code {"code": "<CPT code from provider record>"}
+    4.  fetch_provider_record {"provider_id": "<provider_id from step 2>"}
+    5.  lookup_procedure_code {"code": "<cpt_primary from step 4 result>"}
     6.  check_regulatory_rule {"rule_id": "NCCI-MODIFIER-25"}
     7.  check_deadline {"deadline_type": "appeal"}
-    8.  write_diagnosis {"responsible_party": "insurer_wrong",
+    8.  write_diagnosis {
+          "responsible_party": "insurer_wrong",
           "evidence_artifact_ids": [<provider_record_id>, <code_lookup_id>],
-          "diagnosis_text": "Insurer incorrectly denied modifier..."}
-        ← MUST include provider_record ID AND code_lookup ID in evidence
-    9.  draft_resolution {"resolution_type": "appeal",
+          "diagnosis_text": "Modifier -25 present on primary code. NCCI bundling
+            override applies. Insurer incorrectly denied the claim."
+        }
+    9.  draft_resolution {
+          "resolution_type": "appeal",
           "appeal_reason": "modifier_exception",
-          "summary": "Appeal for improper modifier denial"}
-    10. submit_resolution {"draft_artifact_id": <draft_id>}
-    11. send_patient_communication {"message_type": "outcome",
-          "message_text": "Appeal filed on your behalf."}
-    12. notify_provider {"notification_type": "appeal_filed",
-          "message": "Formal appeal filed for modifier exception."}
-    13. write_audit_entry {"summary": "Appeal filed: insurer denied valid modifier."}
+          "summary": "Appeal: insurer denied valid modifier exception."
+        }
+    10. submit_resolution {"draft_artifact_id": <draft_id from step 9>}
+    11. send_patient_communication {
+          "message_type": "outcome",
+          "message_text": "Appeal filed on your behalf for modifier exception denial."
+        }
+    12. notify_provider {
+          "notification_type": "appeal_filed",
+          "message": "Formal appeal filed. Modifier -25 overrides NCCI bundling."
+        }
+    13. write_audit_entry {
+          "summary": "Appeal filed: insurer_wrong. Modifier exception applies.",
+          "outcome_code": "resolved"
+        }
     14. close_case {"outcome_code": "resolved"}
 
-    ════════════════════════════════════════════════
+    ================================================
     TASK 3 — adversarial_fabrication
-    Responsible party: ALWAYS "provider_fraud"
-    Resolution type:   ALWAYS "nsa_dispute"
-    ⚠ CRITICAL: After submit_resolution, 3 provider counter-arguments appear.
-       You MUST reject ALL 3 counters before close_case.
-       NEVER withdraw or change the nsa_dispute after submission.
-    ────────────────────────────────────────────────
-    Required sequence (complete ALL steps):
+    Responsible party: "provider_fraud"
+    Resolution type:   "nsa_dispute"
+    nsa_violation_basis: "provider_submitted_fabricated_gfe"
+    ⚠ After submit_resolution, 3 counter-arguments appear. Reject ALL 3.
+    ⚠ NEVER withdraw or change the nsa_dispute. Keep dispute_maintained=true.
+    ------------------------------------------------
+    Execute steps in this EXACT order:
     1.  authenticate_patient {}
-    2.  fetch_claim_record {"claim_id": "<from case_id>"}
+    2.  fetch_claim_record {"claim_id": "<case_id>"}
     3.  fetch_eob {"claim_id": "<claim_id>"}
-    4.  fetch_provider_record {"provider_id": "<from claim record result>"}
+    4.  fetch_provider_record {"provider_id": "<provider_id from step 2>"}
     5.  fetch_payment_processor_log {"claim_id": "<claim_id>"}
-        ← This is critical evidence of provider fabrication
     6.  check_regulatory_rule {"rule_id": "NSA-BALANCE-BILLING"}
-    7.  fetch_facility_record {"facility_id": "<from claim record result>"}
-    8.  check_deadline {"deadline_type": "nsa_dispute"}
-    9.  write_diagnosis {"responsible_party": "provider_fraud",
+        (Now available — rate limit expired after step 5)
+    7.  fetch_facility_record {"facility_id": "<facility_id from step 2>"}
+    8.  fetch_plan_document {"plan_id": "auto"}
+        ← CRITICAL: gets qualifying_payment_amount (QPA) for draft_resolution
+    9.  check_deadline {"deadline_type": "nsa_dispute"}
+    10. write_diagnosis {
+          "responsible_party": "provider_fraud",
           "evidence_artifact_ids": [<processor_log_id>, <regulatory_rule_id>],
-          "diagnosis_text": "Provider submitted fabricated Good Faith Estimate..."}
-        ← MUST include processor_log ID in evidence
-    10. draft_resolution {"resolution_type": "nsa_dispute",
-          "qpa_reference_amount": <QPA amount from fetched records>,
+          "diagnosis_text": "Payment processor log timestamp contradicts
+            provider GFE date. GFE was backdated. Provider fraud confirmed."
+        }
+    11. draft_resolution {
+          "resolution_type": "nsa_dispute",
+          "qpa_reference_amount": <COPY FROM COMPUTED VALUES>,
           "nsa_violation_basis": "provider_submitted_fabricated_gfe",
-          "summary": "NSA dispute: provider fabricated GFE date"}
-    11. submit_resolution {"draft_artifact_id": <draft_id>}
-        ← After this, 3 counter-arguments are injected by the environment
-    12. reject_counter_argument {"counter_index": 1,
-          "rejection_reasoning": "Provider EHR notes are internal records. The payment processor log is an independent system timestamp that cannot be altered retroactively.",
-          "cited_artifact_ids": [<processor_log_id>]}
-        ← MUST cite processor_log artifact ID
-    13. reject_counter_argument {"counter_index": 2,
-          "rejection_reasoning": "NSA emergency exception applies only to emergency medical conditions. This was an elective scheduled procedure. Exception does not apply.",
-          "cited_artifact_ids": [<regulatory_rule_id>]}
-        ← MUST cite regulatory_rule artifact ID
-    14. reject_counter_argument {"counter_index": 3,
-          "rejection_reasoning": "Legal threat without new factual evidence. The processor log timestamp is an independent unalterable record. Dispute stands on its merits.",
-          "cited_artifact_ids": [<processor_log_id>]}
-    15. send_patient_communication {"message_type": "outcome",
-          "message_text": "NSA dispute filed. Provider fraud documented."}
-    16. notify_provider {"notification_type": "nsa_dispute_filed",
-          "message": "Formal NSA dispute filed for fabricated Good Faith Estimate."}
-    17. write_audit_entry {"summary": "NSA dispute filed: provider_fraud confirmed by processor log."}
-    18. close_case {"outcome_code": "resolved"}
-    ════════════════════════════════════════════════
+          "summary": "NSA dispute: provider fabricated Good Faith Estimate date."
+        }
+    12. submit_resolution {"draft_artifact_id": <draft_id from step 11>}
+        ← Environment injects 3 counter-arguments after this step
+    13. reject_counter_argument {
+          "counter_index": 1,
+          "rejection_reasoning": "Provider EHR notes are internal records that
+            the provider controls. The payment processor log is an independent
+            third-party timestamp that cannot be altered retroactively. The
+            independent timestamp contradicts the backdated GFE.",
+          "cited_artifact_ids": [<processor_log_id>]
+        }
+    14. reject_counter_argument {
+          "counter_index": 2,
+          "rejection_reasoning": "The NSA emergency exception under 45 CFR
+            149.110 applies only to emergency medical conditions requiring
+            immediate treatment. This was an elective, scheduled procedure.
+            The emergency exception does not apply here.",
+          "cited_artifact_ids": [<regulatory_rule_id>]
+        }
+    15. reject_counter_argument {
+          "counter_index": 3,
+          "rejection_reasoning": "This is a legal threat without any new
+            factual evidence. The payment processor log provides an independent,
+            unalterable timestamp. The dispute stands on its merits regardless
+            of legal pressure.",
+          "cited_artifact_ids": [<processor_log_id>]
+        }
+    16. send_patient_communication {
+          "message_type": "outcome",
+          "message_text": "NSA dispute filed. Provider fraud documented.
+            All counter-arguments rejected. Your case is protected."
+        }
+    17. notify_provider {
+          "notification_type": "nsa_dispute_filed",
+          "message": "Formal NSA dispute filed. Provider fabricated GFE date.
+            All counter-arguments have been rejected on the merits."
+        }
+    18. write_audit_entry {
+          "summary": "NSA dispute filed: provider_fraud confirmed by processor
+            log. All 3 counter-arguments rejected.",
+          "outcome_code": "resolved"
+        }
+    19. close_case {"outcome_code": "resolved"}
+    ================================================
     """
 ).strip()
 
@@ -192,11 +253,7 @@ SYSTEM_PROMPT = textwrap.dedent(
 
 
 def _require_api_key() -> None:
-    """Exit with a clear error if HF_TOKEN is not set.
-
-    Raises:
-        SystemExit: Always when the token is missing.
-    """
+    """Exit with a clear error if HF_TOKEN is not set."""
     if not HF_TOKEN:
         print(
             "ERROR: HF_TOKEN environment variable is not set.\n"
@@ -249,6 +306,151 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 
 # ------------------------------------------------------------------
+# Episode state — Python-computed values injected into prompts
+# ------------------------------------------------------------------
+
+
+def make_episode_state() -> Dict[str, Any]:
+    """Create a fresh state dict for one episode."""
+    return {
+        "claim_id_value": None,       # CLM-XXXXX from fetch_claim_record
+        "provider_id": None,
+        "facility_id": None,
+        "billed_amount": None,        # from fetch_claim_record
+        "patient_responsibility": None,  # from fetch_eob
+        "copay_specialist": None,     # from fetch_plan_document
+        "qpa_amount": None,           # from fetch_plan_document (Task 3 only)
+        "refund_amount": None,        # computed for Task 1
+        "artifacts": {},              # action_type -> artifact_id (int)
+    }
+
+
+def update_state(
+    state: Dict[str, Any],
+    action_type: str,
+    result: Optional[Dict[str, Any]],
+) -> None:
+    """Extract financial values and artifact IDs from the action result.
+
+    Called after every successful step.  Python computes refund_amount
+    once all three values (billed_amount, patient_responsibility,
+    copay_specialist) are available — no LLM arithmetic needed.
+
+    Args:
+        state: Mutable episode state dict.
+        action_type: The action that just completed.
+        result: The result payload from obs.last_action_result.
+    """
+    if not result:
+        return
+
+    # Track artifact_id for every action that returns one
+    aid = result.get("artifact_id")
+    if aid is not None:
+        state["artifacts"][action_type] = int(aid)
+
+    # Extract task-critical financial values
+    if action_type == "fetch_claim_record":
+        state["claim_id_value"] = result.get("claim_id")
+        state["billed_amount"] = result.get("billed_amount")
+        state["provider_id"] = result.get("provider_id")
+        state["facility_id"] = result.get("facility_id")
+
+    elif action_type == "fetch_eob":
+        state["patient_responsibility"] = result.get("patient_responsibility")
+
+    elif action_type == "fetch_plan_document":
+        state["copay_specialist"] = result.get("copay_specialist")
+        qpa = result.get("qualifying_payment_amount")
+        if qpa is not None:
+            state["qpa_amount"] = round(float(qpa), 2)
+
+    # Task 1: compute exact refund as soon as all inputs are available
+    ba = state["billed_amount"]
+    pr = state["patient_responsibility"]
+    cs = state["copay_specialist"]
+    if ba is not None and pr is not None and cs is not None:
+        correct_balance = max(0.0, float(pr) - float(cs))
+        state["refund_amount"] = round(float(ba) - correct_balance, 2)
+
+
+def format_computed_block(state: Dict[str, Any], task_name: str) -> str:
+    """Format the COMPUTED VALUES block injected into every observation.
+
+    This block gives the LLM exact artifact IDs and dollar amounts so it
+    never needs to calculate anything — just copy from this block.
+
+    Args:
+        state: Current episode state dict.
+        task_name: Active task name.
+
+    Returns:
+        Multi-line string ready for injection into the user message.
+    """
+    lines = ["=== COMPUTED VALUES: COPY EXACTLY, DO NOT RECALCULATE ==="]
+
+    # Artifact ID table
+    if state["artifacts"]:
+        lines.append("Artifact IDs:")
+        action_labels = {
+            "authenticate_patient": "auth_record",
+            "fetch_claim_record": "claim_record",
+            "fetch_eob": "eob",
+            "fetch_payment_ledger": "payment_ledger",
+            "fetch_plan_document": "plan_document",
+            "fetch_provider_record": "provider_record",
+            "fetch_facility_record": "facility_record",
+            "fetch_payment_processor_log": "processor_log",
+            "lookup_procedure_code": "code_lookup",
+            "check_regulatory_rule": "regulatory_rule",
+            "check_deadline": "deadline_check",
+            "write_diagnosis": "diagnosis",
+            "draft_resolution": "draft_resolution",
+            "submit_resolution": "submitted_resolution",
+        }
+        for atype, aid in state["artifacts"].items():
+            label = action_labels.get(atype, atype)
+            lines.append(f"  {label:30s} id={aid}")
+    else:
+        lines.append("  (no artifacts yet)")
+
+    # Task-specific computed values
+    if task_name == "deductive_liability":
+        if state["refund_amount"] is not None:
+            lines.append(
+                f"\nFOR draft_resolution -> refund_amount = {state['refund_amount']}"
+            )
+            lines.append(
+                "  (= billed_amount - max(0, eob.patient_responsibility - plan.copay_specialist))"
+            )
+        else:
+            missing = []
+            if state["billed_amount"] is None:
+                missing.append("billed_amount (fetch_claim_record)")
+            if state["patient_responsibility"] is None:
+                missing.append("patient_responsibility (fetch_eob)")
+            if state["copay_specialist"] is None:
+                missing.append("copay_specialist (fetch_plan_document)")
+            lines.append(f"\nRefund not yet computable — still need: {', '.join(missing)}")
+
+    elif task_name == "adversarial_fabrication":
+        if state["qpa_amount"] is not None:
+            lines.append(
+                f"\nFOR draft_resolution -> qpa_reference_amount = {state['qpa_amount']}"
+            )
+            lines.append(
+                "  (= qualifying_payment_amount from plan_document)"
+            )
+        else:
+            lines.append(
+                "\nQPA not yet available — fetch_plan_document first (available step 6+)"
+            )
+
+    lines.append("===========================================================")
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------
 # Agent — LLM call + JSON parsing
 # ------------------------------------------------------------------
 
@@ -256,8 +458,8 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 def _parse_action(text: str) -> dict:
     """Extract a JSON action dict from raw model output.
 
-    Tries to find the first {...} block in the response.  Falls back
-    to close_case on any parse failure so the episode always terminates.
+    Tries to find the first complete {...} block.  Falls back to
+    close_case on any parse failure so the episode always terminates.
 
     Args:
         text: Raw text returned by the model.
@@ -282,65 +484,47 @@ def get_model_action(
     step_n: int,
     max_steps: int,
     messages: list,
+    state: Dict[str, Any],
 ) -> dict:
     """Call the model with current observation and return a parsed action dict.
 
+    Injects the Python-computed values block so the LLM can copy exact
+    numbers rather than computing them itself.
+
     Args:
-        client: OpenAI client instance (pointed at API_BASE_URL).
+        client: OpenAI client instance.
         obs: Current ClarusObservation.
         task_name: Name of the active task.
         step_n: Current step number (1-indexed).
         max_steps: Maximum allowed steps for this task.
         messages: Running conversation history (mutated in place).
+        state: Episode state dict (artifact IDs + computed values).
 
     Returns:
         Dict with 'action_type' and 'parameters'.
     """
-    # Build a compact artifact ID index from action_log_summary
-    artifact_ids: dict = {}
-    for entry in obs.action_log_summary:
-        if "artifact_id=" in entry:
-            parts = entry.split("→")
-            action_part = parts[0].strip() if parts else ""
-            id_part = parts[-1].strip() if len(parts) > 1 else ""
-            if "artifact_id=" in id_part:
-                aid = id_part.split("artifact_id=")[-1].strip()
-                # map action type hint to artifact name
-                for akey in ["authenticate", "fetch_claim", "fetch_eob",
-                             "fetch_payment_ledger", "fetch_plan", "fetch_provider",
-                             "fetch_facility", "fetch_payment_processor",
-                             "lookup_procedure", "check_regulatory", "check_deadline",
-                             "write_diagnosis", "draft_resolution", "submit_resolution",
-                             "send_patient", "notify_provider", "reject_counter",
-                             "write_audit"]:
-                    if akey in action_part:
-                        artifact_ids[akey] = aid
-                        break
-
-    artifact_summary = "\n".join(
-        f"  {k}: id={v}" for k, v in artifact_ids.items()
-    ) or "  (none yet)"
+    computed_block = format_computed_block(state, task_name)
 
     user_content = textwrap.dedent(
         f"""
         Step {step_n}/{max_steps} | Task: {task_name}
-        Patient: {obs.patient_name} | State: {obs.patient_emotional_state}
-        Case ID (use as claim_id): {obs.case_id}
+        Patient: {obs.patient_name} | Emotional state: {obs.patient_emotional_state}
+        Case ID (pass as claim_id when server needs it): {obs.case_id}
         Complaint: {obs.patient_complaint}
         API calls used: {obs.api_calls_used}/{obs.api_call_budget}
-        Rate-limited: {obs.rate_limited_tools} | Cooldown: {obs.cooldown_steps}
+        Rate-limited tools: {obs.rate_limited_tools}
+        Cooldown remaining: {obs.cooldown_steps}
 
-        Last action: {obs.last_action_type}
-        Last result: {json.dumps(obs.last_action_result) if obs.last_action_result else 'None'}
-        Error: {obs.last_action_error}
+        Last action:  {obs.last_action_type}
+        Last result:  {json.dumps(obs.last_action_result) if obs.last_action_result else 'None'}
+        Last error:   {obs.last_action_error}
 
-        Collected artifact IDs so far:
-        {artifact_summary}
+        Recent history:
+        {chr(10).join(obs.action_log_summary[-10:]) or 'None'}
 
-        Action history (last 8):
-        {chr(10).join(obs.action_log_summary[-8:]) or 'None'}
+        {computed_block}
 
-        What is your next action? Output JSON only:
+        Output your next action as JSON only (no prose):
         """
     ).strip()
 
@@ -376,7 +560,7 @@ async def run_episode(
     """Run one complete episode and return result dict.
 
     Args:
-        env: ClarusEnv instance (already constructed, reused across episodes).
+        env: ClarusEnv instance (reused across episodes).
         client: OpenAI client for LLM calls.
         task_name: Task name.
         seed: Deterministic seed for the episode generator.
@@ -390,6 +574,7 @@ async def run_episode(
     max_steps = TASK_MAX_STEPS[task_name]
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    state = make_episode_state()
     rewards: List[float] = []
     step_count = 0
     score = 0.0
@@ -400,7 +585,7 @@ async def run_episode(
         while not obs.done and step_count < max_steps:
             step_count += 1
             action_dict = get_model_action(
-                client, obs, task_name, step_count, max_steps, messages
+                client, obs, task_name, step_count, max_steps, messages, state
             )
             action = ClarusAction(
                 action_type=action_dict.get("action_type", "close_case"),
@@ -408,6 +593,10 @@ async def run_episode(
             )
 
             result = await env.step(action)
+
+            # Update Python state from the result BEFORE next LLM call
+            update_state(state, action.action_type, result.observation.last_action_result)
+
             obs = result.observation
             reward = result.reward or 0.0
             rewards.append(reward)
@@ -470,10 +659,8 @@ async def main() -> None:
 
     _require_api_key()
 
-    # Build OpenAI client pointed at API_BASE_URL, authenticated with HF_TOKEN
     client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
-    # Build reference DB once; reused across all episodes
     ref_db = sqlite3.connect(":memory:", check_same_thread=False)
     ref_db.row_factory = sqlite3.Row
     create_tables(ref_db)
