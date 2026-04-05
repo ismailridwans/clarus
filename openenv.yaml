@@ -6,6 +6,7 @@ description: >
   holding its position under adversarial counter-pressure. Graded by SQL checks
   against real CMS regulatory data (CPT, NCCI, NSA/MPFS 2026).
 tags:
+  - openenv
   - customer-service
   - healthcare
   - billing
