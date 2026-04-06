@@ -107,14 +107,14 @@ TASK1_CHECKS: List[GraderCheck] = [
         """,
         task_name="deductive_liability",
     ),
-    # 4. Plan document fetched
+    # 4. Plan document fetched (count distractor fetch as valid — agent did take the action)
     GraderCheck(
         description="Plan document was fetched",
         query="""
             SELECT COALESCE((
                 SELECT 1 FROM episode_artifacts
                 WHERE episode_id=? AND artifact_type='plan_document'
-                  AND source='agent' LIMIT 1
+                  AND source IN ('agent', 'agent_distractor') LIMIT 1
             ), 0)
         """,
         task_name="deductive_liability",

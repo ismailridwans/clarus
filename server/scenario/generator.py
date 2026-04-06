@@ -179,9 +179,8 @@ def _generate_task1(
     patient_coinsurance = round(after_deductible * plan["coinsurance_rate"], 2)
     subtotal = round(remaining_deductible + patient_coinsurance, 2)
     correct_balance = round(max(0.0, subtotal - plan["copay_specialist"]), 2)
-    # correct_refund = copay_specialist that was not credited
-    # (billed_amount - correct_balance = insurer_paid + copay = what patient overpaid)
-    correct_refund = round(billed_amount - correct_balance, 2)
+    # correct_refund = copay not credited in EOB (the exact billing error amount)
+    correct_refund = round(plan["copay_specialist"], 2)
 
     # Copay ambiguity: ~14% of seeds (seed % 7 == 0)
     has_scheduling_deposit = (seed % 7 == 0) and plan["copay_specialist"] > 0

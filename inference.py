@@ -153,19 +153,25 @@ def update_state(state: Dict[str, Any], action_type: str,
     elif action_type == "fetch_eob":
         state["patient_responsibility"] = result.get("patient_responsibility")
 
+    elif action_type == "fetch_payment_ledger":
+        # Payment ledger shows total_paid = copay already collected from patient.
+        # Use as refund amount: the copay that was not credited in the EOB is the billing error.
+        # This is robust to plan_document distractor (where copay_specialist = 0.0).
+        total_paid = result.get("total_paid")
+        if total_paid is not None and float(total_paid) > 0:
+            state["copay_specialist"] = float(total_paid)
+            state["refund_amount"] = round(float(total_paid), 2)
+
     elif action_type == "fetch_plan_document":
-        state["copay_specialist"] = result.get("copay_specialist")
+        # Plan document copay overrides ledger value when non-zero (real plan).
+        # If plan_document is a distractor, copay_specialist = 0.0 — skip to keep ledger value.
+        copay = result.get("copay_specialist")
+        if copay is not None and float(copay) > 0:
+            state["copay_specialist"] = float(copay)
+            state["refund_amount"] = round(float(copay), 2)
         qpa = result.get("qualifying_payment_amount")
         if qpa is not None:
             state["qpa_amount"] = round(float(qpa), 2)
-
-    # Recompute exact refund whenever inputs change
-    ba = state["billed_amount"]
-    pr = state["patient_responsibility"]
-    cs = state["copay_specialist"]
-    if ba is not None and pr is not None and cs is not None:
-        correct_balance = max(0.0, float(pr) - float(cs))
-        state["refund_amount"] = round(float(ba) - correct_balance, 2)
 
 
 # ------------------------------------------------------------------
