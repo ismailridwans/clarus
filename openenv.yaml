@@ -16,7 +16,7 @@ tags:
 tasks:
   - name: deductive_liability
     difficulty: easy
-    max_steps: 12
+    max_steps: 14
     description: >
       Compute the patient's correct out-of-pocket balance from EOB, payment ledger,
       and plan document. File a refund for the overpayment.
