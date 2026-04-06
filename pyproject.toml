@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "clarus"
+version = "1.0.0"
+description = "Healthcare Billing Dispute & Patient Advocacy OpenEnv environment"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+keywords = ["openenv", "reinforcement-learning", "healthcare", "billing"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["server*", "data*", "tests*"]

@@ -16,7 +16,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 from typing import Any, Dict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -77,7 +77,6 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
-    openapi_url=None,
 )
 
 app.add_middleware(
@@ -183,4 +182,63 @@ async def state() -> StateResponse:
 @app.get("/health")
 async def health() -> Dict[str, str]:
     """Health check endpoint."""
-    return {"status": "ok", "service": "clarus"}
+    return {"status": "healthy", "service": "clarus"}
+
+
+@app.get("/metadata")
+async def metadata() -> Dict[str, Any]:
+    """OpenEnv metadata — environment name, description, and task list."""
+    return {
+        "name": "clarus",
+        "description": (
+            "Healthcare Billing Dispute & Patient Advocacy OpenEnv environment. "
+            "An AI agent vindicates wrongly-billed patients by reconciling multi-party "
+            "records, detecting regulatory violations, and holding its position under "
+            "adversarial counter-pressure. Graded by SQL checks against real CMS data."
+        ),
+        "version": "1.0.0",
+        "tasks": [
+            "deductive_liability",
+            "abductive_conflict",
+            "adversarial_fabrication",
+        ],
+        "hf_space": "ismailridwans/clarus",
+    }
+
+
+@app.get("/schema")
+async def schema() -> Dict[str, Any]:
+    """OpenEnv schema — action, observation, and state JSON schemas."""
+    from server.models import ClarusAction, ClarusObservation
+    return {
+        "action": ClarusAction.model_json_schema(),
+        "observation": ClarusObservation.model_json_schema(),
+        "state": {
+            "type": "object",
+            "description": "Current episode state including metadata and last observation.",
+            "properties": {
+                "episode_id": {"type": ["string", "null"]},
+                "task_name": {"type": ["string", "null"]},
+                "seed": {"type": ["integer", "null"]},
+                "step_number": {"type": "integer"},
+                "done": {"type": "boolean"},
+            },
+        },
+    }
+
+
+@app.post("/mcp")
+async def mcp(request: Request) -> Dict[str, Any]:
+    """Minimal JSON-RPC 2.0 endpoint for MCP-mode compatibility."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return {
+        "jsonrpc": "2.0",
+        "id": body.get("id"),
+        "result": {
+            "name": "clarus",
+            "description": "Healthcare Billing Dispute OpenEnv environment.",
+        },
+    }
