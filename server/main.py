@@ -101,6 +101,12 @@ async def root() -> HTMLResponse:
         return HTMLResponse(content=f.read())
 
 
+@app.get("/web", response_class=HTMLResponse)
+async def web_root() -> HTMLResponse:
+    """Alias for root — supports HF Space base_path: /web set by openenv push."""
+    return await root()
+
+
 @app.post("/reset", response_model=ResetResponse)
 async def reset(request: ResetRequest = ResetRequest()) -> ResetResponse:
     """Start a new episode.
