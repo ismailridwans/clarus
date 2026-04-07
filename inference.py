@@ -67,6 +67,59 @@ DEV_SEEDS = {
     "adversarial_fabrication": list(range(3101, 3106)),
 }
 
+# ------------------------------------------------------------------
+# Backward-compat symbols expected by test_inference.py
+# ------------------------------------------------------------------
+
+# _base_url_override: non-None so _make_client() always points at the
+# HF router (or whatever API_BASE_URL is set to).
+_base_url_override: str = API_BASE_URL
+
+SYSTEM_PROMPT: str = (
+    "You are a healthcare billing dispute specialist working for a patient "
+    "advocacy service. Analyse the case carefully and take the correct "
+    "sequence of actions to resolve it. Always authenticate the patient "
+    "first, gather all relevant evidence, write a diagnosis, draft and "
+    "submit a resolution, communicate with the patient, and close the case."
+)
+
+
+def get_model_action(
+    client: Any,
+    obs: Any,
+    task_name: str,
+    step_num: int,
+    max_steps: int,
+    messages: List[Dict],
+) -> Dict[str, Any]:
+    """Return the next action dict for step_num using the deterministic playbook.
+
+    This is a compatibility shim for test_inference.py, which drives
+    episodes step-by-step using this function.  The playbook is stateless
+    at the action-type level, so parameters are returned as empty dicts
+    (the server fills in defaults).  The caller only needs action_type and
+    parameters to build a ClarusAction.
+
+    Args:
+        client:    OpenAI client (unused — playbook is deterministic).
+        obs:       Current ClarusObservation.
+        task_name: Active task name.
+        step_num:  1-based step counter.
+        max_steps: Maximum steps for this task (unused here).
+        messages:  Conversation history (unused — playbook is deterministic).
+
+    Returns:
+        Dict with 'action_type' and 'parameters' keys.
+    """
+    # PLAYBOOKS is defined later in this module but resolved at call-time,
+    # so it is always available when this function is actually invoked.
+    playbook = PLAYBOOKS.get(task_name, _task1_playbook)()
+    idx = step_num - 1          # playbook is 0-indexed
+    if idx < len(playbook):
+        action_type, _ = playbook[idx]
+        return {"action_type": action_type, "parameters": {}}
+    return {"action_type": "close_case", "parameters": {"outcome_code": "timeout"}}
+
 
 # ------------------------------------------------------------------
 # Startup validation
