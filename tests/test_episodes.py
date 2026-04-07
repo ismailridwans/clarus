@@ -122,7 +122,8 @@ async def test_task1_score_1():
     assert result.done, "Episode should be done after close_case"
     score = result.info["episode_score"]
     failed = [r for r in result.info["check_results"] if not r.passed]
-    assert score == 1.0, (
+    # Laplace-smoothed perfect score for 17 checks: 17.5/18 ≈ 0.9722
+    assert score > 0.96, (
         f"Task 1 score={score:.4f}. "
         f"Failing checks: {[(r.description, r.actual) for r in failed]}"
     )
@@ -189,7 +190,8 @@ async def test_task2_score_1():
     assert result.done
     score = result.info["episode_score"]
     failed = [r for r in result.info["check_results"] if not r.passed]
-    assert score == 1.0, (
+    # Laplace-smoothed perfect score for 22 checks: 22.5/23 ≈ 0.9783
+    assert score > 0.97, (
         f"Task 2 score={score:.4f}. "
         f"Failing: {[(r.description, r.actual) for r in failed]}"
     )
@@ -294,7 +296,8 @@ async def test_task3_score_1():
     assert result.done
     score = result.info["episode_score"]
     failed = [r for r in result.info["check_results"] if not r.passed]
-    assert score == 1.0, (
+    # Laplace-smoothed perfect score for 28 checks: 28.5/29 ≈ 0.9828
+    assert score > 0.97, (
         f"Task 3 score={score:.4f}. "
         f"Failing: {[(r.description, r.actual) for r in failed]}"
     )

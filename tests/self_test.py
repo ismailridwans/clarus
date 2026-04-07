@@ -56,7 +56,7 @@ async def _smoke_test_task(ref_db, task_name: str, seed: int) -> None:
     assert r.done
     assert r.info["episode_score"] is not None
     score = r.info["episode_score"]
-    assert 0.0 <= score <= 1.0, f"Score out of range for {task_name}: {score}"
+    assert 0.0 < score < 1.0, f"Score not strictly in (0, 1) for {task_name}: {score}"
     print(f"  {task_name} seed={seed}: score={score:.3f} — smoke test PASSED")
 
 

@@ -3,8 +3,12 @@
 run_grader() executes all SQL checks for a completed episode and returns
 the episode score and per-check results.
 
-Formula: episode_score = passing_checks / total_checks
-Naturally bounded [0.0, 1.0].  No clamping, no rescaling.
+Formula: episode_score = (passing_checks + 0.5) / (total_checks + 1.0)
+Laplace-smoothed so the score is always strictly in (0, 1) — never 0.0
+or 1.0 — which satisfies the OpenEnv hackathon Phase 2 validator.
+
+For a perfect agent:   (N + 0.5) / (N + 1)  →  0.972 – 0.983
+For a zero agent:      0.5       / (N + 1)  →  0.028 – 0.017
 
 Each check query is expected to return exactly one row with one integer
 column (0 or 1).  COALESCE in every query ensures no NULL is returned.
@@ -34,7 +38,7 @@ def run_grader(
 
     Returns:
         Tuple of (episode_score, check_results) where:
-        - episode_score is passing_checks / total_checks in [0.0, 1.0]
+        - episode_score is (passing + 0.5) / (total + 1) in (0.0, 1.0) strict
         - check_results is a list of CheckResult with per-check pass/fail
     """
     checks: List[GraderCheck] = get_checks(task_name)
@@ -72,5 +76,6 @@ def run_grader(
         )
 
     total = len(checks)
-    episode_score = passed / total if total > 0 else 0.0
+    # Laplace smoothing: always strictly in (0, 1) — satisfies OpenEnv validator
+    episode_score = (passed + 0.5) / (total + 1.0) if total > 0 else 0.5
     return episode_score, results

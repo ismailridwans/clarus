@@ -694,12 +694,12 @@ def test_count_placeholders_multiple():
 
 
 def test_run_grader_score_in_range():
-    """run_grader() episode_score must always be in [0.0, 1.0]."""
+    """run_grader() episode_score must always be strictly in (0.0, 1.0)."""
     db = make_empty_db()
     ep = str(uuid.uuid4())
     for task in ("deductive_liability", "abductive_conflict", "adversarial_fabrication"):
         score, _ = run_grader(ep, db, task)
-        assert 0.0 <= score <= 1.0, f"{task} score {score} out of range"
+        assert 0.0 < score < 1.0, f"{task} score {score} not strictly in (0, 1)"
 
 
 def test_run_grader_check_results_always_0_or_1():

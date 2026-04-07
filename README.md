@@ -177,8 +177,9 @@ class ClarusObservation(BaseModel):
 
 ### Terminal (Episode Score)
 ```
-episode_score = passing_checks / total_checks  ∈  [0.0, 1.0]
+episode_score = (passing_checks + 0.5) / (total_checks + 1)  ∈  (0.0, 1.0)
 ```
+Laplace-smoothed so the score is always **strictly between 0 and 1**. A perfect agent scores ~0.97–0.98; a zero agent scores ~0.02–0.03.
 
 ---
 
@@ -209,9 +210,9 @@ python inference.py
 
 | Task | Difficulty | Checks | Expected Score |
 |---|---|---|---|
-| `deductive_liability` | Easy | 17 | 0.76 – 0.88 |
-| `abductive_conflict` | Medium | 22 | 0.45 – 0.60 |
-| `adversarial_fabrication` | Hard | 28 | 0.36 – 0.50 |
+| `deductive_liability` | 🟢 Easy | 17 | 0.75 – 0.86 |
+| `abductive_conflict` | 🟡 Medium | 22 | 0.46 – 0.59 |
+| `adversarial_fabrication` | 🔴 Hard | 28 | 0.38 – 0.52 |
 | **Overall** | — | — | **~0.53 – 0.66** |
 
 ---
