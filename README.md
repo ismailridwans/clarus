@@ -5,7 +5,6 @@ colorFrom: blue
 colorTo: green
 sdk: docker
 pinned: false
-base_path: /web
 tags:
   - openenv
   - reinforcement-learning
