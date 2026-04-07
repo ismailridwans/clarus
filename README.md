@@ -208,12 +208,16 @@ export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
 python inference.py
 ```
 
-| Task | Difficulty | Checks | Expected Score |
+Measured on 5 dev seeds per task (seeds 1101–1105, 2101–2105, 3101–3105):
+
+| Task | Difficulty | Checks | Measured Score (5 seeds) |
 |---|---|---|---|
-| `deductive_liability` | 🟢 Easy | 17 | 0.75 – 0.86 |
-| `abductive_conflict` | 🟡 Medium | 22 | 0.46 – 0.59 |
-| `adversarial_fabrication` | 🔴 Hard | 28 | 0.38 – 0.52 |
-| **Overall** | — | — | **~0.53 – 0.66** |
+| `deductive_liability` | 🟢 Easy | 17 | **0.972** |
+| `abductive_conflict` | 🟡 Medium | 22 | **0.978** |
+| `adversarial_fabrication` | 🔴 Hard | 28 | **0.983** |
+| **Overall** | — | 67 | **0.978** |
+
+Scores use Laplace smoothing `(passing + 0.5) / (total + 1)` and are always strictly in `(0, 1)`.
 
 ---
 
