@@ -11,6 +11,7 @@ tags:
   - healthcare
   - billing
   - customer-service
+base_path: /web
 ---
 
 # Clarus

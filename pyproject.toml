@@ -10,7 +10,23 @@ requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 keywords = ["openenv", "reinforcement-learning", "healthcare", "billing"]
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "pydantic==2.9.2",
+    "openai==1.51.0",
+    "httpx==0.27.2",
+    "aiofiles==23.2.1",
+    "python-dotenv==1.0.1",
+    "openenv-core>=0.2.0",
+]
+
+[project.scripts]
+server = "server.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["server*", "data*", "tests*"]
+
+[tool.uv]
+override-dependencies = ["openai==1.51.0"]
