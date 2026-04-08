@@ -131,7 +131,7 @@ def log_end(success: bool, steps: int, score: float,
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={steps} "
-        f"rewards={rewards_str}",
+        f"score={score:.6f} rewards={rewards_str}",
         flush=True,
     )
 
