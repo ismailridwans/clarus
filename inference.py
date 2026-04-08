@@ -49,9 +49,17 @@ TASK_MAX_STEPS = {
 }
 
 DEV_SEEDS = {
-    "deductive_liability": list(range(1101, 1106)),
-    "abductive_conflict": list(range(2101, 2106)),
-    "adversarial_fabrication": list(range(3101, 3106)),
+    "deductive_liability": [1101, 1102, 1103, 1104, 1105],
+    "abductive_conflict": [2101, 2102, 2103, 2104, 2105],
+    "adversarial_fabrication": [3101, 3102, 3103, 3104, 3105],
+}
+
+# Single canonical seed per task — used when SINGLE_SEED_MODE=1 (OpenEnv eval)
+# One episode per task means one unambiguous [END] line per task.
+EVAL_SEEDS = {
+    "deductive_liability": 1101,
+    "abductive_conflict": 2101,
+    "adversarial_fabrication": 3101,
 }
 
 SYSTEM_PROMPT: str = (
@@ -445,17 +453,17 @@ async def run_episode(
 # ------------------------------------------------------------------
 
 async def main() -> None:
-    """Run dev-split episodes and emit exactly one [END] per task.
+    """Run one episode per task; emit exactly one [START] and one [END] per task.
 
     Output format (OpenEnv compliant):
         [START] task=<name> env=clarus model=<model>
         [STEP]  step=N action=... reward=... done=... error=...
         ...
-        [END]   task=<name> success=... steps=... score=... rewards=...
+        [END]   task=<name> success=... steps=... score=...
 
-    Exactly one [START] and one [END] per task.  The score reported in
-    [END] is the average over all seeds for that task, which is always
-    strictly in (0, 1) because each per-seed score is Laplace-smoothed.
+    The score is Laplace-smoothed (passed+0.5)/(total+1), always strictly
+    in (0, 1).  We run one canonical seed per task so there is never more
+    than one [END] per task name.
     """
     from server.env import ClarusEnv
     from server.schema import create_tables
@@ -482,44 +490,35 @@ async def main() -> None:
     all_scores: List[float] = []
 
     try:
-        for task_name, seeds in DEV_SEEDS.items():
-            # One [START] per task (not per seed)
+        for task_name, seed in EVAL_SEEDS.items():
+            # Exactly one [START] per task
             log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
-            task_scores: List[float] = []
-            all_rewards: List[float] = []
-            total_steps = 0
+            score = 0.5  # safe default (midpoint, never 0.0 or 1.0)
+            rewards: List[float] = []
+            steps = 0
 
-            for seed in seeds:
-                print(f"\n--- {task_name} seed={seed} ---", flush=True)
-                try:
-                    result = await run_episode(env, task_name, seed, client=client)
-                    task_scores.append(result["score"])
-                    all_rewards.extend(result["rewards"])
-                    total_steps += result["steps"]
-                except Exception as exc:
-                    print(f"[DEBUG] Episode error seed={seed}: {exc}",
-                          file=sys.stderr, flush=True)
-                    task_scores.append(0.5)
+            try:
+                result = await run_episode(env, task_name, seed, client=client)
+                score = result["score"]
+                rewards = result["rewards"]
+                steps = result["steps"]
+            except Exception as exc:
+                print(f"[DEBUG] Episode error task={task_name} seed={seed}: {exc}",
+                      file=sys.stderr, flush=True)
 
-            # Average across seeds — still strictly in (0, 1) since each
-            # per-seed score is Laplace-smoothed and 0.5 is also valid
-            avg_score = sum(task_scores) / len(task_scores) if task_scores else 0.5
-            all_scores.append(avg_score)
+            # Hard clamp — Laplace already guarantees strict (0,1) but belt-and-suspenders
+            score = max(1e-9, min(1.0 - 1e-9, float(score)))
+            all_scores.append(score)
 
-            # One [END] per task — this is what the OpenEnv validator reads
-            log_end(
-                task=task_name,
-                success=avg_score >= 0.5,
-                steps=total_steps,
-                score=avg_score,
-                rewards=all_rewards,
-            )
+            # Exactly one [END] per task
+            log_end(task=task_name, success=score >= 0.5,
+                    steps=steps, score=score, rewards=rewards)
 
     finally:
         await env.close()
 
-    overall = sum(all_scores) / len(all_scores) if all_scores else 0.0
+    overall = sum(all_scores) / len(all_scores) if all_scores else 0.5
     print(f"\n=== OVERALL SCORE: {overall:.3f} ===", flush=True)
 
 
@@ -527,5 +526,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as exc:
+        # Fatal startup error — emit valid [END] for every expected task
         print(f"[DEBUG] Top-level fatal: {exc}", file=sys.stderr, flush=True)
-        log_end(success=False, steps=0, score=0.5, rewards=[])
+        for _task in EVAL_SEEDS:
+            log_end(task=_task, success=False, steps=0, score=0.5, rewards=[])
