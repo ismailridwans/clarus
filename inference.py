@@ -671,12 +671,13 @@ async def main() -> None:
     from server.schema import create_tables
     from data.setup import load_all
 
-    # Build OpenAI client using HF_TOKEN if available
+    # Build OpenAI client using HF_TOKEN if available.
+    # Timeout=8s so a bad/placeholder token never hangs inference.py.
     client = None
     if HF_TOKEN:
         try:
             from openai import OpenAI
-            client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+            client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN, timeout=8.0)
             print(f"[DEBUG] LLM client ready: {API_BASE_URL}", file=sys.stderr, flush=True)
         except Exception as exc:
             print(f"[DEBUG] LLM client init failed (proceeding with static narrative): {exc}",
