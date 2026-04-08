@@ -22,10 +22,10 @@ class EpisodeParams:
     task_name: str
     episode_seed: int
 
-    claim_id: str    # f"CLM-{seed:05d}"
-    patient_id: str  # f"PAT-{seed % 500:04d}"
-    provider_id: str # f"PRV-{seed % 100:03d}"
-    facility_id: str # f"FAC-{seed % 20:02d}"
+    claim_id: str    # f"HC{svc_ym}{seed:06d}"       — e.g. "HC202601001101"
+    patient_id: str  # f"MBR{...}"                   — 7-digit member ID
+    provider_id: str # 10-digit NPI-format string
+    facility_id: str # f"FAC{...}"                   — 5-digit facility code
     plan_id: str     # from plan_templates table
 
     # ------------------------------------------------------------------

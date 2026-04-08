@@ -368,10 +368,14 @@ def generate(
     service_date_str = rng.choice(SERVICE_DATES)
     dates = _make_dates(service_date_str)
 
-    claim_id = f"CLM-{seed:05d}"
-    patient_id = f"PAT-{seed % 500:04d}"
-    provider_id = f"PRV-{seed % 100:03d}"
-    facility_id = f"FAC-{seed % 20:02d}"
+    # Realistic healthcare identifiers — deterministic but non-stub
+    _svc_ym = dates["service_date"].replace("-", "")[:6]  # e.g. "202601"
+    claim_id = f"HC{_svc_ym}{seed:06d}"                   # e.g. "HC202601001101"
+    patient_id = f"MBR{(seed * 6271 % 9000000) + 1000000:07d}"  # e.g. "MBR7654321"
+    # 10-digit NPI-format provider ID (Luhn-like, but deterministic)
+    _npi_base = 1000000000 + (seed * 7919) % 900000000
+    provider_id = f"{_npi_base:010d}"
+    facility_id = f"FAC{10000 + (seed * 3541) % 89000:05d}"     # e.g. "FAC11541"
 
     # Task 1 requires plans with copay > 0 (copay-not-credited scenario)
     plan = _pick_plan(
