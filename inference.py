@@ -30,6 +30,8 @@ except ImportError:
 # Configuration
 # ------------------------------------------------------------------
 
+API_BASE_URL: str = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+HF_TOKEN: str = os.getenv("HF_TOKEN") or ""
 MODEL_NAME: str = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 
 BENCHMARK = "clarus"
@@ -226,8 +228,52 @@ _NARRATIVE_TEXT = {
 }
 
 
-def _load_narrative(task_name: str, state: Dict[str, Any]) -> None:
-    """Load hardcoded narrative text into state. No LLM call."""
+def generate_narrative(client: Any, task_name: str, state: Dict[str, Any]) -> bool:
+    """Call LLM via HF Inference API to generate narrative text.
+
+    Returns True if successful and state was populated, False on any error.
+    Caller should fall back to _NARRATIVE_TEXT on False.
+    """
+    import json as _json
+    prompt = (
+        f"You are a healthcare billing dispute specialist. "
+        f"Generate concise professional narrative text for a '{task_name}' case. "
+        f"Return ONLY valid JSON with exactly these keys: "
+        f"diagnosis_text, resolution_summary, patient_message, provider_message, audit_summary. "
+        f"Each value must be a short string (1-2 sentences)."
+    )
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=512,
+            temperature=0.1,
+        )
+        raw = response.choices[0].message.content or ""
+        # Strip markdown code fences if present
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        data = _json.loads(raw)
+        required = ("diagnosis_text", "resolution_summary",
+                    "patient_message", "provider_message", "audit_summary")
+        if all(k in data for k in required):
+            for k in required:
+                state[k] = str(data[k])
+            return True
+        return False
+    except Exception as exc:
+        print(f"[DEBUG] generate_narrative failed: {exc}", file=sys.stderr, flush=True)
+        return False
+
+
+def _load_narrative(task_name: str, state: Dict[str, Any],
+                    client: Any = None) -> None:
+    """Load narrative text — tries LLM via HF_TOKEN first, falls back to static."""
+    if client is not None and generate_narrative(client, task_name, state):
+        return
     text = _NARRATIVE_TEXT[task_name]
     state["diagnosis_text"] = text["diagnosis_text"]
     state["resolution_summary"] = text["resolution_summary"]
@@ -527,6 +573,7 @@ async def run_episode(
     env,
     task_name: str,
     seed: int,
+    client: Any = None,
 ) -> dict:
     """Run one complete episode using the deterministic playbook.
 
@@ -534,6 +581,7 @@ async def run_episode(
         env: ClarusEnv instance.
         task_name: Task name.
         seed: Episode seed.
+        client: Optional OpenAI client for LLM narrative generation.
 
     Returns:
         Dict with 'score', 'steps', 'rewards'.
@@ -546,8 +594,8 @@ async def run_episode(
 
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
-    # Load hardcoded narrative text — no LLM call needed.
-    _load_narrative(task_name, state)
+    # Generate narrative text — uses LLM if client available, else static.
+    _load_narrative(task_name, state, client=client)
 
     rewards: List[float] = []
     step_count = 0
@@ -613,6 +661,19 @@ async def main() -> None:
     from server.schema import create_tables
     from data.setup import load_all
 
+    # Build OpenAI client using HF_TOKEN if available
+    client = None
+    if HF_TOKEN:
+        try:
+            from openai import OpenAI
+            client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+            print(f"[DEBUG] LLM client ready: {API_BASE_URL}", file=sys.stderr, flush=True)
+        except Exception as exc:
+            print(f"[DEBUG] LLM client init failed (proceeding with static narrative): {exc}",
+                  file=sys.stderr, flush=True)
+    else:
+        print("[DEBUG] HF_TOKEN not set — using static narrative text", file=sys.stderr, flush=True)
+
     ref_db = sqlite3.connect(":memory:", check_same_thread=False)
     ref_db.row_factory = sqlite3.Row
     create_tables(ref_db)
@@ -627,7 +688,7 @@ async def main() -> None:
             for seed in seeds:
                 print(f"\n--- {task_name} seed={seed} ---", flush=True)
                 try:
-                    result = await run_episode(env, task_name, seed)
+                    result = await run_episode(env, task_name, seed, client=client)
                     all_scores.append(result["score"])
                     task_scores.append(result["score"])
                 except Exception as exc:
