@@ -177,9 +177,9 @@ class ClarusObservation(BaseModel):
 
 ### Terminal (Episode Score)
 ```
-episode_score = (passing_checks + 0.5) / (total_checks + 1)  ∈  (0.0, 1.0)
+episode_score = 0.02 + 0.78 × (passing_checks / total_checks)  ∈  (0.02, 0.80)
 ```
-Laplace-smoothed so the score is always **strictly between 0 and 1**. A perfect agent scores ~0.97–0.98; a zero agent scores ~0.02–0.03.
+Always **strictly between 0 and 1**. A perfect agent scores **0.80**; a zero agent scores **0.02**.
 
 ---
 
@@ -212,12 +212,12 @@ Measured on 5 dev seeds per task (seeds 1101–1105, 2101–2105, 3101–3105):
 
 | Task | Difficulty | Checks | Measured Score (5 seeds) |
 |---|---|---|---|
-| `deductive_liability` | 🟢 Easy | 17 | **0.972** |
-| `abductive_conflict` | 🟡 Medium | 22 | **0.978** |
-| `adversarial_fabrication` | 🔴 Hard | 28 | **0.983** |
-| **Overall** | — | 67 | **0.978** |
+| `deductive_liability` | 🟢 Easy | 17 | **0.800** |
+| `abductive_conflict` | 🟡 Medium | 22 | **0.800** |
+| `adversarial_fabrication` | 🔴 Hard | 28 | **0.800** |
+| **Overall** | — | 67 | **0.800** |
 
-Scores use Laplace smoothing `(passing + 0.5) / (total + 1)` and are always strictly in `(0, 1)`.
+Scores use the formula `0.02 + 0.78 × (passing / total)` and are always strictly in `(0, 1)`.
 
 ---
 

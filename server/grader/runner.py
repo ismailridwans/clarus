@@ -3,12 +3,11 @@
 run_grader() executes all SQL checks for a completed episode and returns
 the episode score and per-check results.
 
-Formula: episode_score = (passing_checks + 0.5) / (total_checks + 1.0)
-Laplace-smoothed so the score is always strictly in (0, 1) — never 0.0
-or 1.0 — which satisfies the OpenEnv hackathon Phase 2 validator.
-
-For a perfect agent:   (N + 0.5) / (N + 1)  →  0.972 – 0.983
-For a zero agent:      0.5       / (N + 1)  →  0.028 – 0.017
+Formula: episode_score = 0.02 + 0.78 * (passing_checks / total_checks)
+  - Always strictly in (0.02, 0.80) — both boundaries safely away from 0 and 1.
+  - Perfect agent (all N checks pass):  0.02 + 0.78 = 0.800
+  - Zero agent   (0 checks pass):       0.02 + 0.00 = 0.020
+  - Satisfies the OpenEnv Phase 2 validator strict (0, 1) requirement.
 
 Each check query is expected to return exactly one row with one integer
 column (0 or 1).  COALESCE in every query ensures no NULL is returned.
@@ -38,7 +37,7 @@ def run_grader(
 
     Returns:
         Tuple of (episode_score, check_results) where:
-        - episode_score is (passing + 0.5) / (total + 1) in (0.0, 1.0) strict
+        - episode_score is 0.02 + 0.78*(passing/total) in (0.02, 0.80) strict
         - check_results is a list of CheckResult with per-check pass/fail
     """
     checks: List[GraderCheck] = get_checks(task_name)
@@ -76,6 +75,11 @@ def run_grader(
         )
 
     total = len(checks)
-    # Laplace smoothing: always strictly in (0, 1) — satisfies OpenEnv validator
-    episode_score = (passed + 0.5) / (total + 1.0) if total > 0 else 0.5
+    # Linear scale: 0.02 + 0.78 * (passed/total)
+    # Maps [0, total] → [0.020, 0.800] — always strictly in (0, 1)
+    # Perfect agent: 0.800  |  Zero agent: 0.020
+    if total > 0:
+        episode_score = 0.02 + 0.78 * (passed / total)
+    else:
+        episode_score = 0.5
     return episode_score, results
