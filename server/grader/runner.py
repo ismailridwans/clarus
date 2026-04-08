@@ -90,4 +90,7 @@ def run_grader(
     total = len(checks)
     # Laplace smoothing — always strictly in (0, 1) regardless of pass count
     episode_score = (passed + 0.5) / (total + 1.0) if total > 0 else 0.5
+    # Hard clamp as belt-and-suspenders: Laplace can never reach 0.0 or 1.0
+    # but clamp to [0.01, 0.99] to survive any floating-point edge case.
+    episode_score = max(0.01, min(0.99, episode_score))
     return episode_score, results
