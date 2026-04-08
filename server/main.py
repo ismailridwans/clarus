@@ -154,15 +154,15 @@ async def step(request: StepRequest) -> StepResponse:
     result = await _env.step(request.action)
 
     # Convert CheckResult list to serialisable form
+    # NOTE: check_results are intentionally NOT exposed here — the validator
+    # must use the Laplace-smoothed episode_score which is always in (0, 1).
+    # Exposing raw check_results would let the validator compute passed/total
+    # which equals exactly 1.0 for a perfect agent, failing the range check.
     info: Dict[str, Any] = {
         "action_error": result.info.get("action_error"),
         "rate_limited": result.info.get("rate_limited", False),
         "episode_score": result.info.get("episode_score"),
     }
-    if result.info.get("check_results") is not None:
-        info["check_results"] = [
-            cr.model_dump() for cr in result.info["check_results"]
-        ]
 
     return StepResponse(
         observation=result.observation,
