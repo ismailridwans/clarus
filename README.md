@@ -213,16 +213,17 @@ export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
 python inference.py
 ```
 
-Measured on 5 dev seeds per task (seeds 1101–1105, 2101–2105, 3101–3105):
+Heuristic fallback agent (no LLM, 5 dev seeds per task):
 
-| Task | Difficulty | Checks | Measured Score (5 seeds) |
+| Task | Difficulty | Checks | Baseline Score |
 |---|---|---|---|
-| `deductive_liability` | 🟢 Easy | 17 | **0.972** |
-| `abductive_conflict` | 🟡 Medium | 22 | **0.978** |
-| `adversarial_fabrication` | 🔴 Hard | 28 | **0.983** |
-| **Overall** | — | 67 | **0.978** |
+| `deductive_liability` | 🟢 Easy | 17 | **0.917** |
+| `abductive_conflict` | 🟡 Medium | 22 | **0.587** |
+| `adversarial_fabrication` | 🔴 Hard | 28 | **0.466** |
+| **Overall** | — | 67 | **0.657** |
 
-Scores use Laplace smoothing `(passing + 0.5) / (total + 1)` and are always strictly in `(0, 1)`.
+Scores use Laplace smoothing `(passing + 0.5) / (total + 1)`, always strictly in `(0, 1)`.
+Harder tasks require more domain-specific reasoning (NCCI modifiers, NSA Phase 2 rejections with correct artifact citations) that a generic heuristic misses — producing genuine score differentiation by difficulty.
 
 ---
 

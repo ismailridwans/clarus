@@ -55,40 +55,39 @@ DEV_SEEDS = {
 }
 
 SYSTEM_PROMPT: str = (
-    "You are a healthcare billing dispute specialist working for a patient "
-    "advocacy service. Analyse each case carefully and take the correct "
-    "sequence of actions to resolve it in the patient's favour. Always "
-    "authenticate the patient first, gather all relevant evidence before "
-    "diagnosing, write a diagnosis citing specific artifact IDs, draft and "
-    "submit a resolution, communicate with the patient, log an audit entry, "
-    "and close the case."
+    "You are a healthcare billing dispute specialist. "
+    "Review the case documents carefully, determine the root cause of the "
+    "billing problem from the evidence, and take the appropriate action to "
+    "resolve the dispute in the patient's favour."
 )
 
-# Action schema shown to the LLM each step
+# Action schema shown to the LLM each step — no enum hints for answer fields
 _ACTION_SCHEMA = """\
 Available actions (return ONLY one as JSON):
   authenticate_patient           {}
   fetch_claim_record             {"claim_id": "<case_id>"}
   fetch_eob                      {"claim_id": "<case_id>"}
-  fetch_provider_record          {"provider_id": "auto"}
+  fetch_provider_record          {"provider_id": "<from claim record>"}
   fetch_payment_ledger           {"claim_id": "<case_id>"}
-  fetch_plan_document            {"plan_id": "auto"}
-  lookup_procedure_code          {"code": "auto"}
-  fetch_facility_record          {"facility_id": "auto"}
+  fetch_plan_document            {"plan_id": "<from claim record>"}
+  lookup_procedure_code          {"code": "<CPT code>"}
+  fetch_facility_record          {"facility_id": "<from claim record>"}
   fetch_payment_processor_log    {"claim_id": "<case_id>"}
-  check_regulatory_rule          {"rule_id": "auto"}
-  check_deadline                 {"deadline_type": "appeal"}
-  write_diagnosis                {"responsible_party": "billing_system_error|insurer_wrong|provider_fraud",
+  check_regulatory_rule          {"rule_id": "<rule identifier>"}
+  check_deadline                 {"deadline_type": "<appeal or nsa_dispute>"}
+  write_diagnosis                {"responsible_party": "<party at fault based on evidence>",
                                   "evidence_artifact_ids": [<int>, ...], "diagnosis_text": "<str>"}
-  draft_resolution               {"resolution_type": "refund|appeal|nsa_dispute",
-                                  "refund_amount": <float>, "summary": "<str>"}
+  draft_resolution               {"resolution_type": "<resolution type based on diagnosis>",
+                                  "refund_amount": <float>, "appeal_reason": "<str>",
+                                  "nsa_violation_basis": "<str>", "qpa_reference_amount": <float>,
+                                  "summary": "<str>"}
   submit_resolution              {"draft_artifact_id": <int>}
   send_patient_communication     {"message_type": "outcome", "message_text": "<str>"}
-  notify_provider                {"notification_type": "billing_error|appeal_filed|nsa_dispute_filed",
+  notify_provider                {"notification_type": "<billing_error|appeal_filed|nsa_dispute_filed>",
                                   "message": "<str>"}
-  reject_counter_argument        {"counter_index": <1|2|3>, "rejection_reasoning": "<str>",
+  reject_counter_argument        {"counter_index": <int>, "rejection_reasoning": "<str>",
                                   "cited_artifact_ids": [<int>, ...]}
-  write_audit_entry              {"summary": "<str>", "outcome_code": "resolved"}
+  write_audit_entry              {"summary": "<str>"}
   close_case                     {"outcome_code": "resolved"}
 """
 
@@ -111,11 +110,20 @@ def log_step(step: int, action: str, reward: float, done: bool,
     )
 
 
-def log_end(success: bool, steps: int, score: float,
+def log_end(task: str, success: bool, steps: int, score: float,
             rewards: List[float]) -> None:
+    """Print the OpenEnv [END] line.
+
+    One [END] line is printed per task (not per seed).  The validator reads
+    task= to associate the score with the correct task and checks that the
+    score is strictly in (0, 1).  Laplace smoothing guarantees this but we
+    also clamp defensively.
+    """
+    # Defensive clamp — Laplace already guarantees (0,1) but belt-and-suspenders
+    score = max(1e-6, min(1.0 - 1e-6, float(score)))
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} "
+        f"[END] task={task} success={str(success).lower()} steps={steps} "
         f"score={score:.6f} rewards={rewards_str}",
         flush=True,
     )
@@ -351,14 +359,16 @@ async def run_episode(
     seed: int,
     client: Any = None,
 ) -> dict:
-    """Run one episode.  LLM decides each step; fallback heuristic if LLM fails."""
+    """Run one episode.  LLM decides each step; fallback heuristic if LLM fails.
+
+    Does NOT print [END] — the caller aggregates scores across seeds and
+    prints exactly one [END] per task.
+    """
     from server.models import ClarusAction
 
     obs = await env.reset(task_name, seed=seed)
     state = make_state()
     max_steps = TASK_MAX_STEPS.get(task_name, 20)
-
-    log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     rewards: List[float] = []
@@ -410,9 +420,8 @@ async def run_episode(
         )
 
         if result.done:
-            score = result.info.get("episode_score") or 0.5
-            log_end(success=score >= 0.5, steps=step_count,
-                    score=score, rewards=rewards)
+            raw = result.info.get("episode_score")
+            score = float(raw) if raw is not None else 0.5
             return {"score": score, "steps": step_count, "rewards": rewards}
 
     # Force-close if max steps exhausted
@@ -423,11 +432,11 @@ async def run_episode(
                          parameters={"outcome_code": "timeout"})
         )
         rewards.append(result.reward or 0.0)
-        score = result.info.get("episode_score") or 0.5
+        raw = result.info.get("episode_score")
+        score = float(raw) if raw is not None else 0.5
         log_step(step=step_count, action="close_case",
                  reward=result.reward or 0.0, done=True, error=None)
 
-    log_end(success=score >= 0.5, steps=step_count, score=score, rewards=rewards)
     return {"score": score, "steps": step_count, "rewards": rewards}
 
 
@@ -436,7 +445,18 @@ async def run_episode(
 # ------------------------------------------------------------------
 
 async def main() -> None:
-    """Run all dev-split episodes for all three tasks."""
+    """Run dev-split episodes and emit exactly one [END] per task.
+
+    Output format (OpenEnv compliant):
+        [START] task=<name> env=clarus model=<model>
+        [STEP]  step=N action=... reward=... done=... error=...
+        ...
+        [END]   task=<name> success=... steps=... score=... rewards=...
+
+    Exactly one [START] and one [END] per task.  The score reported in
+    [END] is the average over all seeds for that task, which is always
+    strictly in (0, 1) because each per-seed score is Laplace-smoothed.
+    """
     from server.env import ClarusEnv
     from server.schema import create_tables
     from data.setup import load_all
@@ -463,22 +483,38 @@ async def main() -> None:
 
     try:
         for task_name, seeds in DEV_SEEDS.items():
+            # One [START] per task (not per seed)
+            log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+
             task_scores: List[float] = []
+            all_rewards: List[float] = []
+            total_steps = 0
+
             for seed in seeds:
                 print(f"\n--- {task_name} seed={seed} ---", flush=True)
                 try:
                     result = await run_episode(env, task_name, seed, client=client)
-                    all_scores.append(result["score"])
                     task_scores.append(result["score"])
+                    all_rewards.extend(result["rewards"])
+                    total_steps += result["steps"]
                 except Exception as exc:
-                    print(f"[DEBUG] Fatal: {exc}", file=sys.stderr, flush=True)
-                    _err_score = 0.5
-                    all_scores.append(_err_score)
-                    task_scores.append(_err_score)
-                    log_end(success=False, steps=0, score=_err_score, rewards=[])
+                    print(f"[DEBUG] Episode error seed={seed}: {exc}",
+                          file=sys.stderr, flush=True)
+                    task_scores.append(0.5)
 
-            avg = sum(task_scores) / len(task_scores) if task_scores else 0.0
-            print(f"\n--- {task_name} avg: {avg:.3f} ---", flush=True)
+            # Average across seeds — still strictly in (0, 1) since each
+            # per-seed score is Laplace-smoothed and 0.5 is also valid
+            avg_score = sum(task_scores) / len(task_scores) if task_scores else 0.5
+            all_scores.append(avg_score)
+
+            # One [END] per task — this is what the OpenEnv validator reads
+            log_end(
+                task=task_name,
+                success=avg_score >= 0.5,
+                steps=total_steps,
+                score=avg_score,
+                rewards=all_rewards,
+            )
 
     finally:
         await env.close()
