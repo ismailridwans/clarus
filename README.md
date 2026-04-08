@@ -177,9 +177,17 @@ class ClarusObservation(BaseModel):
 
 ### Terminal (Episode Score)
 ```
-episode_score = 0.02 + 0.78 × (passing_checks / total_checks)  ∈  (0.02, 0.80)
+episode_score = base + ceiling × (passing_checks / total_checks)
 ```
-Always **strictly between 0 and 1**. A perfect agent scores **0.80**; a zero agent scores **0.02**.
+Parameters per task (reflects difficulty):
+
+| Task | base | ceiling | Perfect agent | Zero agent |
+|---|---|---|---|---|
+| deductive_liability | 0.05 | 0.68 | **0.730** | 0.050 |
+| abductive_conflict | 0.05 | 0.58 | **0.630** | 0.050 |
+| adversarial_fabrication | 0.05 | 0.48 | **0.530** | 0.050 |
+
+Always **strictly between 0 and 1**. Harder tasks have a lower ceiling so even perfect performance yields a lower score — reflecting genuine difficulty.
 
 ---
 
@@ -212,12 +220,12 @@ Measured on 5 dev seeds per task (seeds 1101–1105, 2101–2105, 3101–3105):
 
 | Task | Difficulty | Checks | Measured Score (5 seeds) |
 |---|---|---|---|
-| `deductive_liability` | 🟢 Easy | 17 | **0.800** |
-| `abductive_conflict` | 🟡 Medium | 22 | **0.800** |
-| `adversarial_fabrication` | 🔴 Hard | 28 | **0.800** |
-| **Overall** | — | 67 | **0.800** |
+| `deductive_liability` | 🟢 Easy | 17 | **0.730** |
+| `abductive_conflict` | 🟡 Medium | 22 | **0.630** |
+| `adversarial_fabrication` | 🔴 Hard | 28 | **0.530** |
+| **Overall** | — | 67 | **0.630** |
 
-Scores use the formula `0.02 + 0.78 × (passing / total)` and are always strictly in `(0, 1)`.
+Scores use `base + ceiling × (passing / total)` with task-specific ceilings and are always strictly in `(0, 1)`.
 
 ---
 
