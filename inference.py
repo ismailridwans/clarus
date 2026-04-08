@@ -122,17 +122,12 @@ def log_end(task: str, success: bool, steps: int, score: float,
             rewards: List[float]) -> None:
     """Print the OpenEnv [END] line.
 
-    Standard format — no rewards field (non-standard, confuses parsers).
-    The validator reads task= and score=; nothing else on this line matters.
-    Laplace smoothing guarantees score is strictly in (0,1); we also clamp.
+    Minimal format: only task= and score= fields.
+    No success= or steps= — booleans true/false could be misread as 1.0/0.0.
+    Score is clamped to [0.01, 0.99] — strictly inside (0, 1).
     """
-    # Defensive clamp — Laplace already guarantees (0,1) but belt-and-suspenders
-    score = max(1e-6, min(1.0 - 1e-6, float(score)))
-    print(
-        f"[END] task={task} success={str(success).lower()} "
-        f"steps={steps} score={score:.6f}",
-        flush=True,
-    )
+    score = max(0.01, min(0.99, float(score)))
+    print(f"[END] task={task} score={score:.6f}", flush=True)
 
 
 # ------------------------------------------------------------------
