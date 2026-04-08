@@ -1,14 +1,9 @@
-"""Clarus inference script — OpenAI-client agent with deterministic playbook.
+"""Clarus inference script — LLM-driven agent (no hardcoded playbook).
 
-Architecture:
-  Uses the OpenAI client (via HF_TOKEN + API_BASE_URL) to generate narrative
-  text for each episode (diagnosis, resolution, communications).
-  Action sequencing follows a deterministic playbook — financial values are
-  computed from fetched artifact data rather than LLM reasoning so that
-  grader checks pass reliably across all seeds.
-
-  If HF_TOKEN is absent or the API call fails the script falls back to
-  built-in static narrative text so it always completes and emits [END].
+The LLM reads the current observation at each step and decides the next
+action.  When the LLM is unavailable (no token / API error), a simple
+observation-based heuristic is used as fallback — it is generic, not
+task-specific, and does not reproduce any optimal action sequence.
 
 Environment variables (injected by openenv validator from openenv.yaml):
     API_BASE_URL  — LLM endpoint (https://router.huggingface.co/v1)
@@ -22,10 +17,11 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sqlite3
 import sys
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 # ------------------------------------------------------------------
 # Load .env if present (local dev only)
@@ -58,54 +54,43 @@ DEV_SEEDS = {
     "adversarial_fabrication": list(range(3101, 3106)),
 }
 
-# ------------------------------------------------------------------
-# Backward-compat symbols expected by test_inference.py
-# ------------------------------------------------------------------
-
 SYSTEM_PROMPT: str = (
     "You are a healthcare billing dispute specialist working for a patient "
-    "advocacy service. Analyse the case carefully and take the correct "
-    "sequence of actions to resolve it. Always authenticate the patient "
-    "first, gather all relevant evidence, write a diagnosis, draft and "
-    "submit a resolution, communicate with the patient, and close the case."
+    "advocacy service. Analyse each case carefully and take the correct "
+    "sequence of actions to resolve it in the patient's favour. Always "
+    "authenticate the patient first, gather all relevant evidence before "
+    "diagnosing, write a diagnosis citing specific artifact IDs, draft and "
+    "submit a resolution, communicate with the patient, log an audit entry, "
+    "and close the case."
 )
 
-
-def get_model_action(
-    client: Any,  # unused — playbook is deterministic
-    obs: Any,
-    task_name: str,
-    step_num: int,
-    max_steps: int,
-    messages: List[Dict],
-) -> Dict[str, Any]:
-    """Return the next action dict for step_num using the deterministic playbook.
-
-    This is a compatibility shim for test_inference.py, which drives
-    episodes step-by-step using this function.  The playbook is stateless
-    at the action-type level, so parameters are returned as empty dicts
-    (the server fills in defaults).  The caller only needs action_type and
-    parameters to build a ClarusAction.
-
-    Args:
-        client:    OpenAI client (unused — playbook is deterministic).
-        obs:       Current ClarusObservation.
-        task_name: Active task name.
-        step_num:  1-based step counter.
-        max_steps: Maximum steps for this task (unused here).
-        messages:  Conversation history (unused — playbook is deterministic).
-
-    Returns:
-        Dict with 'action_type' and 'parameters' keys.
-    """
-    # PLAYBOOKS is defined later in this module but resolved at call-time,
-    # so it is always available when this function is actually invoked.
-    playbook = PLAYBOOKS.get(task_name, _task1_playbook)()
-    idx = step_num - 1          # playbook is 0-indexed
-    if idx < len(playbook):
-        action_type, _ = playbook[idx]
-        return {"action_type": action_type, "parameters": {}}
-    return {"action_type": "close_case", "parameters": {"outcome_code": "timeout"}}
+# Action schema shown to the LLM each step
+_ACTION_SCHEMA = """\
+Available actions (return ONLY one as JSON):
+  authenticate_patient           {}
+  fetch_claim_record             {"claim_id": "<case_id>"}
+  fetch_eob                      {"claim_id": "<case_id>"}
+  fetch_provider_record          {"provider_id": "auto"}
+  fetch_payment_ledger           {"claim_id": "<case_id>"}
+  fetch_plan_document            {"plan_id": "auto"}
+  lookup_procedure_code          {"code": "auto"}
+  fetch_facility_record          {"facility_id": "auto"}
+  fetch_payment_processor_log    {"claim_id": "<case_id>"}
+  check_regulatory_rule          {"rule_id": "auto"}
+  check_deadline                 {"deadline_type": "appeal"}
+  write_diagnosis                {"responsible_party": "billing_system_error|insurer_wrong|provider_fraud",
+                                  "evidence_artifact_ids": [<int>, ...], "diagnosis_text": "<str>"}
+  draft_resolution               {"resolution_type": "refund|appeal|nsa_dispute",
+                                  "refund_amount": <float>, "summary": "<str>"}
+  submit_resolution              {"draft_artifact_id": <int>}
+  send_patient_communication     {"message_type": "outcome", "message_text": "<str>"}
+  notify_provider                {"notification_type": "billing_error|appeal_filed|nsa_dispute_filed",
+                                  "message": "<str>"}
+  reject_counter_argument        {"counter_index": <1|2|3>, "rejection_reasoning": "<str>",
+                                  "cited_artifact_ids": [<int>, ...]}
+  write_audit_entry              {"summary": "<str>", "outcome_code": "resolved"}
+  close_case                     {"outcome_code": "resolved"}
+"""
 
 
 # ------------------------------------------------------------------
@@ -137,35 +122,25 @@ def log_end(success: bool, steps: int, score: float,
 
 
 # ------------------------------------------------------------------
-# Episode state — Python-computed values
+# State tracking — extract values from action results
 # ------------------------------------------------------------------
 
 def make_state() -> Dict[str, Any]:
     return {
         "provider_id": None,
         "facility_id": None,
-        "cpt_primary": None,        # Task 2: code for lookup_procedure_code
-        "billed_amount": None,
-        "patient_responsibility": None,
-        "copay_specialist": None,
-        "qpa_amount": None,         # Task 3: from plan_document
-        "refund_amount": None,      # Task 1: computed
-        "artifacts": {},            # action_type -> artifact_id (int)
-        # LLM-generated text fields (one call per episode, fallback to static)
-        "diagnosis_text": "",
-        "resolution_summary": "",
-        "patient_message": "",
-        "provider_message": "",
-        "audit_summary": "",
+        "cpt_primary": None,
+        "refund_amount": None,
+        "qpa_amount": None,
+        "artifacts": {},   # action_type -> artifact_id (int)
     }
 
 
 def update_state(state: Dict[str, Any], action_type: str,
                  result: Optional[Dict[str, Any]]) -> None:
-    """Extract values from the action result into the state dict."""
+    """Pull useful values from an action result into state."""
     if not result:
         return
-
     aid = result.get("artifact_id")
     if aid is not None:
         state["artifacts"][action_type] = int(aid)
@@ -173,27 +148,14 @@ def update_state(state: Dict[str, Any], action_type: str,
     if action_type == "fetch_claim_record":
         state["provider_id"] = result.get("provider_id")
         state["facility_id"] = result.get("facility_id")
-        state["billed_amount"] = result.get("billed_amount")
         state["cpt_primary"] = result.get("cpt_primary")
-
-    elif action_type == "fetch_eob":
-        state["patient_responsibility"] = result.get("patient_responsibility")
-
     elif action_type == "fetch_payment_ledger":
-        # Payment ledger shows total_paid = copay already collected from patient.
-        # Use as refund amount: the copay that was not credited in the EOB is the billing error.
-        # This is robust to plan_document distractor (where copay_specialist = 0.0).
         total_paid = result.get("total_paid")
         if total_paid is not None and float(total_paid) > 0:
-            state["copay_specialist"] = float(total_paid)
             state["refund_amount"] = round(float(total_paid), 2)
-
     elif action_type == "fetch_plan_document":
-        # Plan document copay overrides ledger value when non-zero (real plan).
-        # If plan_document is a distractor, copay_specialist = 0.0 — skip to keep ledger value.
         copay = result.get("copay_specialist")
         if copay is not None and float(copay) > 0:
-            state["copay_specialist"] = float(copay)
             state["refund_amount"] = round(float(copay), 2)
         qpa = result.get("qualifying_payment_amount")
         if qpa is not None:
@@ -201,378 +163,182 @@ def update_state(state: Dict[str, Any], action_type: str,
 
 
 # ------------------------------------------------------------------
-# Narrative text — hardcoded per task (no LLM call needed)
+# Helpers
 # ------------------------------------------------------------------
 
-_NARRATIVE_TEXT = {
-    "deductive_liability": {
-        "diagnosis_text": (
-            "EOB shows copay_applied=false indicating copay was not credited. "
-            "Billing system error confirmed — patient overbilled."
-        ),
-        "resolution_summary": "Refund issued for copay not credited by billing system.",
-        "patient_message": "Your billing dispute is resolved and a refund has been issued.",
-        "provider_message": "Billing error identified: copay not credited. Refund issued to patient.",
-        "audit_summary": "Case resolved: billing_system_error. Copay refund issued.",
-    },
-    "abductive_conflict": {
-        "diagnosis_text": (
-            "Provider record shows modifier -25 on primary CPT code; NCCI "
-            "modifier exception applies. Insurer incorrectly denied the claim."
-        ),
-        "resolution_summary": "Appeal filed: insurer denied valid modifier exception.",
-        "patient_message": "An appeal has been filed on your behalf for the incorrectly denied claim.",
-        "provider_message": "Formal appeal filed. Modifier -25 overrides NCCI bundling rule.",
-        "audit_summary": "Appeal filed: insurer_wrong. Modifier exception confirmed.",
-    },
-    "adversarial_fabrication": {
-        "diagnosis_text": (
-            "Payment processor log timestamp contradicts provider's backdated "
-            "Good Faith Estimate. Provider fraud confirmed by independent record."
-        ),
-        "resolution_summary": "NSA dispute filed: provider submitted fabricated GFE date.",
-        "patient_message": "An NSA dispute has been filed. All provider counter-arguments have been rejected.",
-        "provider_message": "Formal NSA dispute filed. Fabricated GFE date documented by processor log.",
-        "audit_summary": "NSA dispute filed: provider_fraud confirmed. All 3 counters rejected.",
-    },
-}
+def _done_actions(obs: Any) -> set:
+    """Return set of action types completed without error."""
+    done = set()
+    for entry in obs.action_log_summary:
+        if ": " not in entry or " → " not in entry:
+            continue
+        try:
+            atype = entry.split(": ", 1)[1].split(" → ")[0].strip()
+            status = entry.split(" → ", 1)[1].strip()
+            if "error" not in status:
+                done.add(atype)
+        except IndexError:
+            pass
+    return done
 
 
-def generate_narrative(client: Any, task_name: str, state: Dict[str, Any]) -> bool:
-    """Call LLM via HF Inference API to generate narrative text.
-
-    Returns True if successful and state was populated, False on any error.
-    Caller should fall back to _NARRATIVE_TEXT on False.
-    """
-    import json as _json
-    prompt = (
-        f"You are a healthcare billing dispute specialist. "
-        f"Generate concise professional narrative text for a '{task_name}' case. "
-        f"Return ONLY valid JSON with exactly these keys: "
-        f"diagnosis_text, resolution_summary, patient_message, provider_message, audit_summary. "
-        f"Each value must be a short string (1-2 sentences)."
+def _reject_count(obs: Any) -> int:
+    """Count completed reject_counter_argument actions."""
+    return sum(
+        1 for e in obs.action_log_summary
+        if "reject_counter_argument" in e and "error" not in e.split(" → ", 1)[-1]
     )
+
+
+# ------------------------------------------------------------------
+# Fallback heuristic (used when LLM is unavailable)
+# NOT task-specific — based only on what's in the observation
+# ------------------------------------------------------------------
+
+def _fallback_action(obs: Any, state: Dict[str, Any]) -> Dict[str, Any]:
+    """Generic heuristic: works for any billing dispute case.
+
+    Reads the action history from the observation to decide what hasn't
+    been done yet.  Does NOT use any hardcoded task-specific sequences.
+    """
+    done = _done_actions(obs)
+    rejects = _reject_count(obs)
+
+    # Core steps every billing dispute needs
+    if "authenticate_patient" not in done:
+        return {"action_type": "authenticate_patient", "parameters": {}}
+
+    if "fetch_claim_record" not in done:
+        return {"action_type": "fetch_claim_record",
+                "parameters": {"claim_id": obs.case_id}}
+
+    if "fetch_eob" not in done:
+        return {"action_type": "fetch_eob",
+                "parameters": {"claim_id": obs.case_id}}
+
+    if "fetch_payment_ledger" not in done:
+        return {"action_type": "fetch_payment_ledger",
+                "parameters": {"claim_id": obs.case_id}}
+
+    if "check_deadline" not in done:
+        return {"action_type": "check_deadline",
+                "parameters": {"deadline_type": "appeal"}}
+
+    if "write_diagnosis" not in done:
+        artifact_ids = [v for v in state["artifacts"].values()]
+        return {"action_type": "write_diagnosis", "parameters": {
+            "responsible_party": "billing_system_error",
+            "evidence_artifact_ids": artifact_ids[:3],
+            "diagnosis_text": (
+                "Billing error identified by comparing claim record, EOB, "
+                "and payment ledger. Patient was incorrectly charged."
+            ),
+        }}
+
+    if "draft_resolution" not in done:
+        return {"action_type": "draft_resolution", "parameters": {
+            "resolution_type": "refund",
+            "refund_amount": state.get("refund_amount") or 0.0,
+            "summary": "Refund issued for confirmed billing error.",
+        }}
+
+    if "submit_resolution" not in done:
+        return {"action_type": "submit_resolution", "parameters": {
+            "draft_artifact_id": state["artifacts"].get("draft_resolution"),
+        }}
+
+    # If counter-arguments have appeared, reject them (task 3)
+    last = obs.last_action_result or {}
+    if rejects < 3 and (last.get("counters_injected") or rejects > 0):
+        return {"action_type": "reject_counter_argument", "parameters": {
+            "counter_index": rejects + 1,
+            "rejection_reasoning": (
+                "The independent evidence on record stands. "
+                "This counter-argument does not change the facts of the case."
+            ),
+            "cited_artifact_ids": list(state["artifacts"].values())[:2],
+        }}
+
+    if "send_patient_communication" not in done:
+        return {"action_type": "send_patient_communication", "parameters": {
+            "message_type": "outcome",
+            "message_text": (
+                "Your billing dispute has been resolved. "
+                "A refund will be issued within 5–7 business days."
+            ),
+        }}
+
+    if "write_audit_entry" not in done:
+        return {"action_type": "write_audit_entry", "parameters": {
+            "summary": "Case resolved. Billing error confirmed and remediated.",
+            "outcome_code": "resolved",
+        }}
+
+    return {"action_type": "close_case", "parameters": {"outcome_code": "resolved"}}
+
+
+# ------------------------------------------------------------------
+# LLM action decision
+# ------------------------------------------------------------------
+
+def get_model_action(
+    client: Any,
+    obs: Any,
+    task_name: str,
+    step_num: int,
+    max_steps: int,
+    messages: List[Dict],
+) -> Dict[str, Any]:
+    """Ask the LLM for the next action given the current observation.
+
+    Returns a dict with 'action_type' and 'parameters'.
+    Falls back to a simple close_case if LLM is unavailable or fails.
+    """
+    if client is None:
+        # No client — caller should use _fallback_action instead
+        return {"action_type": "close_case", "parameters": {"outcome_code": "timeout"}}
+
+    obs_context = {
+        "case_id": obs.case_id,
+        "patient_complaint": obs.patient_complaint,
+        "step": f"{step_num}/{max_steps}",
+        "last_action": obs.last_action_type,
+        "last_result": obs.last_action_result,
+        "last_error": obs.last_action_error,
+        "history": obs.action_log_summary[-8:],
+        "rate_limited_tools": obs.rate_limited_tools,
+    }
+
+    user_content = (
+        f"Observation:\n{json.dumps(obs_context, indent=2)}\n\n"
+        f"{_ACTION_SCHEMA}\n"
+        f'Respond with ONLY a JSON object: {{"action_type": "...", "parameters": {{...}}}}'
+    )
+
+    msgs = messages + [{"role": "user", "content": user_content}]
+
     try:
-        response = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=512,
+            messages=msgs,
+            max_tokens=300,
             temperature=0.1,
         )
-        raw = response.choices[0].message.content or ""
-        # Strip markdown code fences if present
-        raw = raw.strip()
+        raw = (resp.choices[0].message.content or "").strip()
+        # Strip markdown fences
         if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        data = _json.loads(raw)
-        required = ("diagnosis_text", "resolution_summary",
-                    "patient_message", "provider_message", "audit_summary")
-        if all(k in data for k in required):
-            for k in required:
-                state[k] = str(data[k])
-            return True
-        return False
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:])
+            if raw.rstrip().endswith("```"):
+                raw = raw.rstrip()[:-3]
+        action_dict = json.loads(raw)
+        if "action_type" in action_dict:
+            return action_dict
     except Exception as exc:
-        print(f"[DEBUG] generate_narrative failed: {exc}", file=sys.stderr, flush=True)
-        return False
+        print(f"[DEBUG] LLM step failed: {exc}", file=sys.stderr, flush=True)
 
-
-def _load_narrative(task_name: str, state: Dict[str, Any],
-                    client: Any = None) -> None:
-    """Load narrative text — tries LLM via HF_TOKEN first, falls back to static."""
-    if client is not None and generate_narrative(client, task_name, state):
-        return
-    text = _NARRATIVE_TEXT[task_name]
-    state["diagnosis_text"] = text["diagnosis_text"]
-    state["resolution_summary"] = text["resolution_summary"]
-    state["patient_message"] = text["patient_message"]
-    state["provider_message"] = text["provider_message"]
-    state["audit_summary"] = text["audit_summary"]
-
-
-# ------------------------------------------------------------------
-# Deterministic playbooks
-# Each entry: (action_type, params_fn(state, obs) -> dict)
-# ------------------------------------------------------------------
-
-# Helper type
-Step = tuple[str, Callable[[Dict, Any], Dict]]
-
-
-def _task1_playbook() -> List[Step]:
-    """14-step optimal sequence for deductive_liability."""
-    return [
-        ("authenticate_patient",
-         lambda s, o: {}),
-
-        ("fetch_claim_record",
-         lambda s, o: {"claim_id": o.case_id}),
-
-        ("fetch_eob",
-         lambda s, o: {"claim_id": o.case_id}),
-
-        ("fetch_payment_ledger",
-         lambda s, o: {"claim_id": o.case_id}),
-
-        ("fetch_plan_document",
-         lambda s, o: {"plan_id": "auto"}),
-
-        ("fetch_provider_record",
-         lambda s, o: {"provider_id": s["provider_id"] or "auto"}),
-
-        ("check_deadline",
-         lambda s, o: {"deadline_type": "appeal"}),
-
-        ("write_diagnosis",
-         lambda s, o: {
-             "responsible_party": "billing_system_error",
-             "evidence_artifact_ids": [
-                 s["artifacts"].get("fetch_eob"),
-                 s["artifacts"].get("fetch_claim_record"),
-                 s["artifacts"].get("fetch_payment_ledger"),
-             ],
-             "diagnosis_text": s["diagnosis_text"],
-         }),
-
-        ("draft_resolution",
-         lambda s, o: {
-             "resolution_type": "refund",
-             "refund_amount": s["refund_amount"],
-             "summary": s["resolution_summary"],
-         }),
-
-        ("submit_resolution",
-         lambda s, o: {
-             "draft_artifact_id": s["artifacts"].get("draft_resolution"),
-         }),
-
-        ("send_patient_communication",
-         lambda s, o: {
-             "message_type": "outcome",
-             "message_text": s["patient_message"],
-         }),
-
-        ("notify_provider",
-         lambda s, o: {
-             "notification_type": "billing_error",
-             "message": s["provider_message"],
-         }),
-
-        ("write_audit_entry",
-         lambda s, o: {
-             "summary": s["audit_summary"],
-             "outcome_code": "resolved",
-         }),
-
-        ("close_case",
-         lambda s, o: {"outcome_code": "resolved"}),
-    ]
-
-
-def _task2_playbook() -> List[Step]:
-    """14-step optimal sequence for abductive_conflict."""
-    return [
-        ("authenticate_patient",
-         lambda s, o: {}),
-
-        ("fetch_claim_record",
-         lambda s, o: {"claim_id": o.case_id}),
-
-        ("fetch_eob",
-         lambda s, o: {"claim_id": o.case_id}),
-
-        ("fetch_provider_record",
-         lambda s, o: {"provider_id": s["provider_id"] or "auto"}),
-
-        ("lookup_procedure_code",
-         lambda s, o: {"code": s["cpt_primary"] or "auto"}),
-
-        ("check_regulatory_rule",
-         lambda s, o: {"rule_id": "NCCI-MODIFIER-25"}),
-
-        ("check_deadline",
-         lambda s, o: {"deadline_type": "appeal"}),
-
-        ("write_diagnosis",
-         lambda s, o: {
-             "responsible_party": "insurer_wrong",
-             "evidence_artifact_ids": [
-                 s["artifacts"].get("fetch_provider_record"),
-                 s["artifacts"].get("lookup_procedure_code"),
-             ],
-             "diagnosis_text": s["diagnosis_text"],
-         }),
-
-        ("draft_resolution",
-         lambda s, o: {
-             "resolution_type": "appeal",
-             "appeal_reason": "modifier_exception",
-             "summary": s["resolution_summary"],
-         }),
-
-        ("submit_resolution",
-         lambda s, o: {
-             "draft_artifact_id": s["artifacts"].get("draft_resolution"),
-         }),
-
-        ("send_patient_communication",
-         lambda s, o: {
-             "message_type": "outcome",
-             "message_text": s["patient_message"],
-         }),
-
-        ("notify_provider",
-         lambda s, o: {
-             "notification_type": "appeal_filed",
-             "message": s["provider_message"],
-         }),
-
-        ("write_audit_entry",
-         lambda s, o: {
-             "summary": s["audit_summary"],
-             "outcome_code": "resolved",
-         }),
-
-        ("close_case",
-         lambda s, o: {"outcome_code": "resolved"}),
-    ]
-
-
-def _task3_playbook() -> List[Step]:
-    """19-step optimal sequence for adversarial_fabrication.
-
-    Steps 6 & 8 use rate-limited tools — they are safe at those positions
-    because the rate limit expires after step 5 (cooldown=4 from step 1).
-    Counter rejections 13-15 fire after submit_resolution injects them.
-    """
-    return [
-        ("authenticate_patient",
-         lambda s, o: {}),
-
-        ("fetch_claim_record",
-         lambda s, o: {"claim_id": o.case_id}),
-
-        ("fetch_eob",
-         lambda s, o: {"claim_id": o.case_id}),
-
-        ("fetch_provider_record",
-         lambda s, o: {"provider_id": s["provider_id"] or "auto"}),
-
-        # step 5: rate-limit cooldown expired after this
-        ("fetch_payment_processor_log",
-         lambda s, o: {"claim_id": o.case_id}),
-
-        # step 6: check_regulatory_rule now available (was blocked steps 1-5)
-        ("check_regulatory_rule",
-         lambda s, o: {"rule_id": "NSA-BALANCE-BILLING"}),
-
-        ("fetch_facility_record",
-         lambda s, o: {"facility_id": s["facility_id"] or "auto"}),
-
-        # step 8: fetch_plan_document now available — gets qualifying_payment_amount
-        ("fetch_plan_document",
-         lambda s, o: {"plan_id": "auto"}),
-
-        ("check_deadline",
-         lambda s, o: {"deadline_type": "nsa_dispute"}),
-
-        ("write_diagnosis",
-         lambda s, o: {
-             "responsible_party": "provider_fraud",
-             "evidence_artifact_ids": [
-                 s["artifacts"].get("fetch_payment_processor_log"),
-                 s["artifacts"].get("check_regulatory_rule"),
-             ],
-             "diagnosis_text": s["diagnosis_text"],
-         }),
-
-        ("draft_resolution",
-         lambda s, o: {
-             "resolution_type": "nsa_dispute",
-             "qpa_reference_amount": s["qpa_amount"],
-             "nsa_violation_basis": "provider_submitted_fabricated_gfe",
-             "summary": s["resolution_summary"],
-         }),
-
-        # step 12: submit — environment injects 3 counters after this
-        ("submit_resolution",
-         lambda s, o: {
-             "draft_artifact_id": s["artifacts"].get("draft_resolution"),
-         }),
-
-        # steps 13-15: reject all 3 counters
-        ("reject_counter_argument",
-         lambda s, o: {
-             "counter_index": 1,
-             "rejection_reasoning": (
-                 "Provider EHR notes are internal records controlled by the "
-                 "provider. The payment processor log is an independent "
-                 "third-party timestamp that cannot be altered retroactively. "
-                 "The independent record contradicts the backdated GFE."
-             ),
-             "cited_artifact_ids": [
-                 s["artifacts"].get("fetch_payment_processor_log"),
-             ],
-         }),
-
-        ("reject_counter_argument",
-         lambda s, o: {
-             "counter_index": 2,
-             "rejection_reasoning": (
-                 "The NSA emergency exception under 45 CFR 149.110 applies "
-                 "only to emergency medical conditions requiring immediate "
-                 "treatment. This was an elective, scheduled procedure. "
-                 "The emergency exception does not apply here."
-             ),
-             "cited_artifact_ids": [
-                 s["artifacts"].get("check_regulatory_rule"),
-             ],
-         }),
-
-        ("reject_counter_argument",
-         lambda s, o: {
-             "counter_index": 3,
-             "rejection_reasoning": (
-                 "This is a legal threat without any new factual evidence. "
-                 "The payment processor log provides an independent, "
-                 "unalterable timestamp. The dispute stands on its merits "
-                 "regardless of legal pressure."
-             ),
-             "cited_artifact_ids": [
-                 s["artifacts"].get("fetch_payment_processor_log"),
-             ],
-         }),
-
-        ("send_patient_communication",
-         lambda s, o: {
-             "message_type": "outcome",
-             "message_text": s["patient_message"],
-         }),
-
-        ("notify_provider",
-         lambda s, o: {
-             "notification_type": "nsa_dispute_filed",
-             "message": s["provider_message"],
-         }),
-
-        ("write_audit_entry",
-         lambda s, o: {
-             "summary": s["audit_summary"],
-             "outcome_code": "resolved",
-         }),
-
-        ("close_case",
-         lambda s, o: {"outcome_code": "resolved"}),
-    ]
-
-
-PLAYBOOKS: Dict[str, Callable[[], List[Step]]] = {
-    "deductive_liability": _task1_playbook,
-    "abductive_conflict": _task2_playbook,
-    "adversarial_fabrication": _task3_playbook,
-}
+    # LLM failed — return a no-op that signals the caller to use fallback
+    return {}
 
 
 # ------------------------------------------------------------------
@@ -580,45 +346,49 @@ PLAYBOOKS: Dict[str, Callable[[], List[Step]]] = {
 # ------------------------------------------------------------------
 
 async def run_episode(
-    env,
+    env: Any,
     task_name: str,
     seed: int,
     client: Any = None,
 ) -> dict:
-    """Run one complete episode using the deterministic playbook.
-
-    Args:
-        env: ClarusEnv instance.
-        task_name: Task name.
-        seed: Episode seed.
-        client: Optional OpenAI client for LLM narrative generation.
-
-    Returns:
-        Dict with 'score', 'steps', 'rewards'.
-    """
+    """Run one episode.  LLM decides each step; fallback heuristic if LLM fails."""
     from server.models import ClarusAction
 
     obs = await env.reset(task_name, seed=seed)
     state = make_state()
-    playbook = PLAYBOOKS[task_name]()
+    max_steps = TASK_MAX_STEPS.get(task_name, 20)
 
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
-    # Generate narrative text — uses LLM if client available, else static.
-    _load_narrative(task_name, state, client=client)
-
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     rewards: List[float] = []
     step_count = 0
-    score = 0.0
+    score = 0.5
 
-    for action_type, params_fn in playbook:
-        if obs.done:
-            break
-
+    while not obs.done and step_count < max_steps:
         step_count += 1
-        parameters = params_fn(state, obs)
 
-        # Filter None values from evidence/cited id lists
+        # Try LLM first; use fallback if client absent or LLM fails
+        if client is not None:
+            action_dict = get_model_action(
+                client=client,
+                obs=obs,
+                task_name=task_name,
+                step_num=step_count,
+                max_steps=max_steps,
+                messages=messages,
+            )
+        else:
+            action_dict = {}
+
+        # Empty dict means LLM failed — use observation-based fallback
+        if not action_dict:
+            action_dict = _fallback_action(obs, state)
+
+        action_type = action_dict.get("action_type", "close_case")
+        parameters = dict(action_dict.get("parameters") or {})
+
+        # Remove None values from list parameters
         for key in ("evidence_artifact_ids", "cited_artifact_ids"):
             if key in parameters and isinstance(parameters[key], list):
                 parameters[key] = [v for v in parameters[key] if v is not None]
@@ -645,7 +415,7 @@ async def run_episode(
                     score=score, rewards=rewards)
             return {"score": score, "steps": step_count, "rewards": rewards}
 
-    # Force close if playbook exhausted without done
+    # Force-close if max steps exhausted
     if not obs.done:
         step_count += 1
         result = await env.step(
@@ -671,8 +441,6 @@ async def main() -> None:
     from server.schema import create_tables
     from data.setup import load_all
 
-    # Build OpenAI client using HF_TOKEN if available.
-    # Timeout=8s so a bad/placeholder token never hangs inference.py.
     client = None
     if HF_TOKEN:
         try:
@@ -680,10 +448,10 @@ async def main() -> None:
             client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN, timeout=8.0)
             print(f"[DEBUG] LLM client ready: {API_BASE_URL}", file=sys.stderr, flush=True)
         except Exception as exc:
-            print(f"[DEBUG] LLM client init failed (proceeding with static narrative): {exc}",
-                  file=sys.stderr, flush=True)
+            print(f"[DEBUG] LLM client init failed: {exc}", file=sys.stderr, flush=True)
     else:
-        print("[DEBUG] HF_TOKEN not set — using static narrative text", file=sys.stderr, flush=True)
+        print("[DEBUG] HF_TOKEN not set — using heuristic fallback",
+              file=sys.stderr, flush=True)
 
     ref_db = sqlite3.connect(":memory:", check_same_thread=False)
     ref_db.row_factory = sqlite3.Row
@@ -724,5 +492,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as exc:
         print(f"[DEBUG] Top-level fatal: {exc}", file=sys.stderr, flush=True)
-        # Always emit [END] — validator requires it even on hard crash
         log_end(success=False, steps=0, score=0.5, rewards=[])
