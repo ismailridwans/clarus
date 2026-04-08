@@ -177,17 +177,14 @@ class ClarusObservation(BaseModel):
 
 ### Terminal (Episode Score)
 ```
-episode_score = base + ceiling × (passing_checks / total_checks)
+episode_score = (passing_checks + 0.5) / (total_checks + 1.0)   ∈ (0, 1)
 ```
-Parameters per task (reflects difficulty):
+Standard Laplace smoothing. The score is determined **only** by how many SQL grader checks the agent passes — no artificial weights or caps. The formula is always strictly in (0, 1):
 
-| Task | base | ceiling | Perfect agent | Zero agent |
-|---|---|---|---|---|
-| deductive_liability | 0.05 | 0.68 | **0.730** | 0.050 |
-| abductive_conflict | 0.05 | 0.58 | **0.630** | 0.050 |
-| adversarial_fabrication | 0.05 | 0.48 | **0.530** | 0.050 |
-
-Always **strictly between 0 and 1**. Harder tasks have a lower ceiling so even perfect performance yields a lower score — reflecting genuine difficulty.
+| Agent | Task 1 (17 checks) | Task 2 (22 checks) | Task 3 (28 checks) |
+|---|---|---|---|
+| Perfect (all pass) | 0.972 | 0.978 | 0.983 |
+| Zero (none pass) | 0.028 | 0.022 | 0.017 |
 
 ---
 
@@ -220,12 +217,12 @@ Measured on 5 dev seeds per task (seeds 1101–1105, 2101–2105, 3101–3105):
 
 | Task | Difficulty | Checks | Measured Score (5 seeds) |
 |---|---|---|---|
-| `deductive_liability` | 🟢 Easy | 17 | **0.730** |
-| `abductive_conflict` | 🟡 Medium | 22 | **0.630** |
-| `adversarial_fabrication` | 🔴 Hard | 28 | **0.530** |
-| **Overall** | — | 67 | **0.630** |
+| `deductive_liability` | 🟢 Easy | 17 | **0.972** |
+| `abductive_conflict` | 🟡 Medium | 22 | **0.978** |
+| `adversarial_fabrication` | 🔴 Hard | 28 | **0.983** |
+| **Overall** | — | 67 | **0.978** |
 
-Scores use `base + ceiling × (passing / total)` with task-specific ceilings and are always strictly in `(0, 1)`.
+Scores use Laplace smoothing `(passing + 0.5) / (total + 1)` and are always strictly in `(0, 1)`.
 
 ---
 

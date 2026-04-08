@@ -3,20 +3,32 @@
 run_grader() executes all SQL checks for a completed episode and returns
 the episode score and per-check results.
 
-Formula: episode_score = base + ceiling * (passing_checks / total_checks)
-  Each task has its own ceiling reflecting its difficulty:
+Scoring formula  (Laplace smoothing):
 
-  Task                   base  ceiling  perfect   zero
-  deductive_liability    0.05   0.68    0.730     0.050   (easy)
-  abductive_conflict     0.05   0.58    0.630     0.050   (medium)
-  adversarial_fabrication 0.05  0.48   0.530     0.050   (hard)
+    episode_score = (checks_passed + 0.5) / (checks_total + 1.0)
 
-  Always strictly in (0.05, 0.73) — well inside (0, 1) on both sides.
-  Satisfies the OpenEnv Phase 2 validator strict (0, 1) requirement.
+This is the standard way to convert a raw pass-rate into a value that is
+ALWAYS strictly inside (0, 1) — never exactly 0.0 or 1.0 — because:
 
-Each check query is expected to return exactly one row with one integer
-column (0 or 1).  COALESCE in every query ensures no NULL is returned.
-All ? placeholders in a query are bound to episode_id.
+    numerator   = checks_passed + 0.5   →  at least 0.5,  at most  N + 0.5
+    denominator = checks_total  + 1.0   →  always N + 1.0
+    ratio       = num / denom           →  (0.5/N+1,  (N+0.5)/N+1)  ⊂  (0,1)
+
+Typical scores for the three tasks:
+
+    Task                    Checks   Perfect agent   Zero agent
+    deductive_liability       17       0.972          0.028
+    abductive_conflict        22       0.978          0.022
+    adversarial_fabrication   28       0.983          0.017
+
+The score is determined entirely by how many grader SQL checks the agent
+passes — no artificial caps, multipliers, or difficulty weights.
+Harder tasks have more checks and stricter SQL conditions; that is the
+only source of score difference between difficulty levels.
+
+Each check query returns exactly one integer 0 or 1.
+COALESCE in every query ensures no NULL is returned.
+All ? placeholders are bound to episode_id.
 """
 
 from __future__ import annotations
@@ -26,17 +38,6 @@ from typing import List, Tuple
 
 from server.grader.checks import GraderCheck, count_placeholders, get_checks
 from server.models import CheckResult
-
-
-# Per-task score parameters: (base, ceiling)
-# episode_score = base + ceiling * (passed / total)
-# Harder tasks have a lower ceiling so perfect performance still yields a
-# meaningfully lower score than the easy task — reflects genuine difficulty.
-_TASK_SCORE_PARAMS = {
-    "deductive_liability":     (0.05, 0.68),   # perfect → 0.730
-    "abductive_conflict":      (0.05, 0.58),   # perfect → 0.630
-    "adversarial_fabrication": (0.05, 0.48),   # perfect → 0.530
-}
 
 
 def run_grader(
@@ -53,8 +54,8 @@ def run_grader(
 
     Returns:
         Tuple of (episode_score, check_results) where:
-        - episode_score is base + ceiling*(passing/total), always in (0, 1)
-        - check_results is a list of CheckResult with per-check pass/fail
+        - episode_score = (passed + 0.5) / (total + 1.0), always in (0, 1)
+        - check_results = list of CheckResult with per-check pass/fail
     """
     checks: List[GraderCheck] = get_checks(task_name)
     results: List[CheckResult] = []
@@ -67,16 +68,12 @@ def run_grader(
         try:
             row = db.execute(check.query, params).fetchone()
             actual = row[0] if row is not None else 0
-            # Ensure we got an integer 0 or 1
             actual_int = int(actual) if actual is not None else 0
             check_passed = actual_int == 1
         except Exception as exc:
             actual_int = 0
             check_passed = False
-            print(
-                f"[GRADER ERROR] {check.description}: {exc}",
-                flush=True,
-            )
+            print(f"[GRADER ERROR] {check.description}: {exc}", flush=True)
 
         if check_passed:
             passed += 1
@@ -91,10 +88,6 @@ def run_grader(
         )
 
     total = len(checks)
-    if total > 0:
-        base, ceiling = _TASK_SCORE_PARAMS.get(task_name, (0.05, 0.68))
-        proportion = passed / total
-        episode_score = base + ceiling * proportion
-    else:
-        episode_score = 0.5
+    # Laplace smoothing — always strictly in (0, 1) regardless of pass count
+    episode_score = (passed + 0.5) / (total + 1.0) if total > 0 else 0.5
     return episode_score, results
