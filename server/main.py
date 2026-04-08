@@ -188,7 +188,7 @@ async def state() -> StateResponse:
 @app.get("/health")
 async def health() -> Dict[str, str]:
     """Health check endpoint."""
-    return {"status": "ok", "service": "clarus"}
+    return {"status": "healthy", "service": "clarus"}
 
 
 @app.get("/metadata")

@@ -382,7 +382,7 @@ footer{position:relative;z-index:1;border-top:1px solid var(--c-border);padding:
         <tr><td><span class="method m-post">POST</span></td><td class="ep">/reset</td><td class="ep-desc">Start new episode, returns initial observation</td><td><code>task_name</code> <code>seed</code></td></tr>
         <tr><td><span class="method m-post">POST</span></td><td class="ep">/step</td><td class="ep-desc">Execute action, returns observation + reward + done</td><td><code>action.action_type</code> <code>action.parameters</code></td></tr>
         <tr><td><span class="method m-get">GET</span></td><td class="ep">/state</td><td class="ep-desc">Read current episode state without advancing</td><td>—</td></tr>
-        <tr><td><span class="method m-get">GET</span></td><td class="ep">/health</td><td class="ep-desc">Health check — <code>{"status":"ok"}</code></td><td>—</td></tr>
+        <tr><td><span class="method m-get">GET</span></td><td class="ep">/health</td><td class="ep-desc">Health check — <code>{"status":"healthy"}</code></td><td>—</td></tr>
       </tbody>
     </table>
   </div>
@@ -677,7 +677,7 @@ function renderObs(o){
 async function checkHealth(){
   try{
     const r=await fetch('/health');const d=await r.json();
-    const ok=d.status==='ok';
+    const ok=d.status==='healthy';
     document.getElementById('status-txt').textContent=ok?'Live':'Down';
     document.getElementById('m-status').textContent=ok?'● Online':'● Offline';
     document.getElementById('m-status').style.color=ok?'var(--c-green)':'var(--c-red)';
