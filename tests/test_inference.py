@@ -94,7 +94,7 @@ async def _run_one(task_name: str, seed: int) -> dict:
     client = _make_client()
 
     try:
-        return await run_episode(env, client, task_name, seed)
+        return await run_episode(env, task_name, seed, client)
     finally:
         await env.close()
 
