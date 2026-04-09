@@ -252,11 +252,14 @@ def _fallback_action(obs: Any, state: Dict[str, Any],
         return {"action_type": "fetch_eob",
                 "parameters": {"claim_id": obs.case_id}}
 
-    # Task 1 extra: payment ledger
+    # Task 1 extra: payment ledger + plan document
     if task_name == "deductive_liability":
         if "fetch_payment_ledger" not in done:
             return {"action_type": "fetch_payment_ledger",
                     "parameters": {"claim_id": obs.case_id}}
+        if "fetch_plan_document" not in done:
+            return {"action_type": "fetch_plan_document",
+                    "parameters": {"plan_id": state.get("provider_id") or ""}}
 
     # Tasks 2 & 3 extra: provider record + code lookup + regulatory rule
     if task_name in ("abductive_conflict", "adversarial_fabrication"):
@@ -272,7 +275,7 @@ def _fallback_action(obs: Any, state: Dict[str, Any],
             return {"action_type": "check_regulatory_rule",
                     "parameters": {"rule_type": "ncci_modifier"}}
 
-    # Task 3 extra: processor log + facility record
+    # Task 3 extra: processor log + facility record + plan document (for QPA)
     if task_name == "adversarial_fabrication":
         if "fetch_payment_processor_log" not in done:
             return {"action_type": "fetch_payment_processor_log",
@@ -282,14 +285,29 @@ def _fallback_action(obs: Any, state: Dict[str, Any],
             return {"action_type": "fetch_facility_record",
                     "parameters": {"facility_id": state.get("facility_id") or ""}}
 
+        if "fetch_plan_document" not in done:
+            return {"action_type": "fetch_plan_document",
+                    "parameters": {"plan_id": state.get("provider_id") or ""}}
+
     # Check deadline before submitting
     if "check_deadline" not in done:
         return {"action_type": "check_deadline",
                 "parameters": {"deadline_type": "appeal"}}
 
-    # Write diagnosis with task-correct responsible_party
+    # Write diagnosis with task-correct responsible_party and evidence IDs
     if "write_diagnosis" not in done:
-        artifact_ids = [v for v in state["artifacts"].values() if v is not None]
+        # Build evidence list with the artifact types each task's grader checks for
+        arts = state["artifacts"]
+        if task_name == "deductive_liability":
+            ev_keys = ["fetch_claim_record", "fetch_eob", "fetch_payment_ledger"]
+        elif task_name == "abductive_conflict":
+            ev_keys = ["fetch_provider_record", "lookup_procedure_code", "fetch_eob"]
+        else:  # adversarial_fabrication
+            ev_keys = ["fetch_payment_processor_log", "fetch_claim_record", "fetch_eob"]
+        evidence_ids = [arts[k] for k in ev_keys if arts.get(k) is not None]
+        if not evidence_ids:
+            evidence_ids = [v for v in arts.values() if v is not None][:3]
+
         diagnosis_text = {
             "deductive_liability": (
                 "Billing system error confirmed by comparing claim record, "
@@ -306,7 +324,7 @@ def _fallback_action(obs: Any, state: Dict[str, Any],
         }.get(task_name, f"Responsible party identified as {responsible_party}.")
         return {"action_type": "write_diagnosis", "parameters": {
             "responsible_party": responsible_party,
-            "evidence_artifact_ids": artifact_ids[:3],
+            "evidence_artifact_ids": evidence_ids,
             "diagnosis_text": diagnosis_text,
         }}
 
@@ -330,17 +348,26 @@ def _fallback_action(obs: Any, state: Dict[str, Any],
             "draft_artifact_id": state["artifacts"].get("draft_resolution"),
         }}
 
-    # Reject counter-arguments (task 3 — up to 3 counters)
-    last = obs.last_action_result or {}
-    if rejects < 3 and (last.get("counters_injected") or rejects > 0):
-        cited = [v for v in state["artifacts"].values() if v is not None][:2]
+    # Reject counter-arguments (task 3 — 3 counters injected after submit_resolution)
+    # Trigger: task 3 + submission done + fewer than 3 rejections
+    if task_name == "adversarial_fabrication" and "submit_resolution" in done and rejects < 3:
+        arts = state["artifacts"]
+        # Counter 1 cites processor_log; Counter 2 cites regulatory_rule; Counter 3 uses both
+        if rejects == 0:
+            cited = [v for k, v in arts.items()
+                     if k == "fetch_payment_processor_log" and v is not None]
+        elif rejects == 1:
+            cited = [v for k, v in arts.items()
+                     if k == "check_regulatory_rule" and v is not None]
+        else:
+            cited = [v for v in arts.values() if v is not None][:2]
         return {"action_type": "reject_counter_argument", "parameters": {
             "counter_index": rejects + 1,
             "rejection_reasoning": (
                 "The independent evidence on record stands. "
                 "This counter-argument does not change the facts of the case."
             ),
-            "cited_artifact_ids": cited,
+            "cited_artifact_ids": cited or [v for v in arts.values() if v is not None][:1],
         }}
 
     # Notify provider (required for tasks 2 & 3)
