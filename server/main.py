@@ -161,7 +161,7 @@ async def step(request: StepRequest) -> StepResponse:
     # check_results are intentionally NOT exposed (would allow passing/total=1.0).
     raw_score = result.info.get("episode_score")
     if raw_score is not None:
-        episode_score = max(0.1, min(0.9, float(raw_score)))
+        episode_score = max(0.02, min(0.98, float(raw_score)))
     else:
         episode_score = 0.5  # in-progress placeholder — always strictly in (0,1)
 

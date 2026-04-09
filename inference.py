@@ -134,9 +134,10 @@ def log_end(task: str, success: bool, steps: int, score: float,
 
     Minimal format: only task= and score= fields.
     No success= or steps= — booleans true/false could be misread as 1.0/0.0.
-    Score is clamped to [0.1, 0.9] — well inside (0, 1), safe for all validators.
+    Score is clamped to [0.02, 0.98] — Laplace already guarantees (0,1);
+    this clamp only guards against floating-point edge cases.
     """
-    score = max(0.1, min(0.9, float(score)))
+    score = max(0.02, min(0.98, float(score)))
     print(f"[END] task={task} score={score:.6f}", flush=True)
 
 
@@ -609,8 +610,8 @@ async def main() -> None:
                 print(f"[DEBUG] Episode error task={task_name} seed={seed}: {exc}",
                       file=sys.stderr, flush=True)
 
-            # Hard clamp — constrain to [0.1, 0.9], well inside (0,1)
-            score = max(0.1, min(0.9, float(score)))
+            # Hard clamp — Laplace guarantees (0,1); clamp handles edge cases only
+            score = max(0.02, min(0.98, float(score)))
             all_scores.append(score)
 
             # Exactly one [END] per task
