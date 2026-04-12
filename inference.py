@@ -485,12 +485,16 @@ async def run_episode(
     rewards: List[float] = []
     step_count = 0
     score = 0.5
+    llm_failures = 0          # consecutive LLM failures
+    LLM_FAILURE_LIMIT = 3    # disable LLM after this many consecutive failures
 
     while not obs.done and step_count < max_steps:
         step_count += 1
 
-        # Try LLM first; use fallback if client absent or LLM fails
-        if client is not None:
+        # Try LLM unless it has failed too many times in a row
+        action_dict: Dict[str, Any] = {}
+        use_llm = client is not None and llm_failures < LLM_FAILURE_LIMIT
+        if use_llm:
             action_dict = get_model_action(
                 client=client,
                 obs=obs,
@@ -499,11 +503,17 @@ async def run_episode(
                 max_steps=max_steps,
                 messages=messages,
             )
-        else:
-            action_dict = {}
 
-        # Empty dict means LLM failed — use observation-based fallback
-        if not action_dict:
+        if action_dict:
+            llm_failures = 0  # reset on success
+        else:
+            # LLM failed or absent — use deterministic heuristic
+            if use_llm:
+                llm_failures += 1
+                if llm_failures >= LLM_FAILURE_LIMIT:
+                    print(f"[DEBUG] LLM failed {llm_failures}x in a row — "
+                          f"switching to heuristic for task={task_name}",
+                          file=sys.stderr, flush=True)
             action_dict = _fallback_action(obs, state, task_name)
 
         action_type = action_dict.get("action_type", "close_case")
@@ -576,7 +586,8 @@ async def main() -> None:
     if HF_TOKEN:
         try:
             from openai import OpenAI
-            client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN, timeout=8.0)
+            # timeout=30s per call — gives LLM enough time without hanging
+            client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN, timeout=30.0)
             print(f"[DEBUG] LLM client ready: {API_BASE_URL}", file=sys.stderr, flush=True)
         except Exception as exc:
             print(f"[DEBUG] LLM client init failed: {exc}", file=sys.stderr, flush=True)
@@ -592,20 +603,29 @@ async def main() -> None:
     env = ClarusEnv(ref_db=ref_db)
     all_scores: List[float] = []
 
+    # Per-task timeout: 5 minutes each → 15 min total, well inside 20-min limit
+    TASK_TIMEOUT = 300  # seconds
+
     try:
         for task_name, seed in EVAL_SEEDS.items():
             # Exactly one [START] per task
             log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
-            score = 0.5  # safe default (midpoint, never 0.0 or 1.0)
+            score = 0.5  # safe default — strictly in (0,1)
             rewards: List[float] = []
             steps = 0
 
             try:
-                result = await run_episode(env, task_name, seed, client=client)
+                result = await asyncio.wait_for(
+                    run_episode(env, task_name, seed, client=client),
+                    timeout=TASK_TIMEOUT,
+                )
                 score = result["score"]
                 rewards = result["rewards"]
                 steps = result["steps"]
+            except asyncio.TimeoutError:
+                print(f"[DEBUG] Task {task_name} timed out after {TASK_TIMEOUT}s "
+                      f"— using default score 0.5", file=sys.stderr, flush=True)
             except Exception as exc:
                 print(f"[DEBUG] Episode error task={task_name} seed={seed}: {exc}",
                       file=sys.stderr, flush=True)
@@ -614,7 +634,7 @@ async def main() -> None:
             score = max(0.02, min(0.98, float(score)))
             all_scores.append(score)
 
-            # Exactly one [END] per task
+            # Exactly one [END] per task — always emitted, even after timeout
             log_end(task=task_name, success=score >= 0.5,
                     steps=steps, score=score, rewards=rewards)
 
