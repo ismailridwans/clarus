@@ -120,28 +120,30 @@ def log_start(task: str, env: str, model: str) -> None:
 
 def log_step(step: int, action: str, reward: float, done: bool,
              error: Optional[str]) -> None:
-    # Print to STDERR — stdout must contain ONLY [START] and [END] lines.
-    # [STEP] lines contain reward=0.00 and done=true/false which the
-    # validator can misparse as score values 0.0 and 1.0.
+    error_val = error if error else "null"
+    done_val = str(done).lower()
     print(
         f"[STEP] step={step} action={action} "
-        f"reward={reward:.2f} done={str(done).lower()} "
-        f"error={error if error else 'null'}",
-        file=sys.stderr, flush=True,
+        f"reward={reward:.2f} done={done_val} "
+        f"error={error_val}",
+        flush=True,
     )
 
 
-def log_end(task: str, success: bool, steps: int, score: float,
+def log_end(success: bool, steps: int, score: float,
             rewards: List[float]) -> None:
-    """Print the OpenEnv [END] line.
+    """Print the OpenEnv [END] line in official format.
 
-    Minimal format: only task= and score= fields.
-    No success= or steps= — booleans true/false could be misread as 1.0/0.0.
-    Score is clamped to [0.02, 0.98] — Laplace already guarantees (0,1);
-    this clamp only guards against floating-point edge cases.
+    Format: [END] success=<bool> steps=<n> score=<float> rewards=<r1,r2,...>
+    Score is clamped to [0.01, 0.99] for safety (Laplace already gives (0,1)).
     """
-    score = max(0.02, min(0.98, float(score)))
-    print(f"[END] task={task} score={score:.6f}", flush=True)
+    score = max(0.01, min(0.99, float(score)))
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} "
+        f"score={score:.2f} rewards={rewards_str}",
+        flush=True,
+    )
 
 
 # ------------------------------------------------------------------
@@ -573,13 +575,8 @@ async def main() -> None:
 
     Output format (OpenEnv compliant):
         [START] task=<name> env=clarus model=<model>
-        [STEP]  step=N action=... reward=... done=... error=...
-        ...
-        [END]   task=<name> score=<float>
-
-    The score is Laplace-smoothed (passed+0.5)/(total+1), always strictly
-    in (0, 1).  We run one canonical seed per task so there is never more
-    than one [END] per task name.
+        [STEP]  step=N action=... reward=0.00 done=true|false error=...
+        [END]   success=true|false steps=N score=0.97 rewards=0.00,...,0.00
     """
     from server.env import ClarusEnv
     from server.schema import create_tables
@@ -638,7 +635,7 @@ async def main() -> None:
             all_scores.append(score)
 
             # Exactly one [END] per task — always emitted, even after timeout
-            log_end(task=task_name, success=score >= 0.5,
+            log_end(success=score >= 0.5,
                     steps=steps, score=score, rewards=rewards)
 
     finally:
@@ -655,4 +652,5 @@ if __name__ == "__main__":
         # Fatal startup error — emit valid [END] for every expected task
         print(f"[DEBUG] Top-level fatal: {exc}", file=sys.stderr, flush=True)
         for _task in EVAL_SEEDS:
-            log_end(task=_task, success=False, steps=0, score=0.5, rewards=[])
+            log_start(task=_task, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.50, rewards=[])
