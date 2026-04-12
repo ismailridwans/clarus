@@ -120,11 +120,14 @@ def log_start(task: str, env: str, model: str) -> None:
 
 def log_step(step: int, action: str, reward: float, done: bool,
              error: Optional[str]) -> None:
+    # Print to STDERR — stdout must contain ONLY [START] and [END] lines.
+    # [STEP] lines contain reward=0.00 and done=true/false which the
+    # validator can misparse as score values 0.0 and 1.0.
     print(
         f"[STEP] step={step} action={action} "
         f"reward={reward:.2f} done={str(done).lower()} "
         f"error={error if error else 'null'}",
-        flush=True,
+        file=sys.stderr, flush=True,
     )
 
 
@@ -642,7 +645,7 @@ async def main() -> None:
         await env.close()
 
     overall = sum(all_scores) / len(all_scores) if all_scores else 0.5
-    print(f"\n=== OVERALL SCORE: {overall:.3f} ===", flush=True)
+    print(f"\n=== OVERALL SCORE: {overall:.3f} ===", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
