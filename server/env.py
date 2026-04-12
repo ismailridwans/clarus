@@ -491,8 +491,7 @@ class ClarusEnv:
                 observation=obs,
                 reward=reward,
                 done=False,
-                info={"action_error": error_msg, "rate_limited": True,
-                      "episode_score": None, "check_results": None},
+                info={"episode_score": None},
             )
 
         # -----------------------------------------------------------
@@ -523,8 +522,7 @@ class ClarusEnv:
                 observation=obs,
                 reward=reward,
                 done=False,
-                info={"action_error": error, "rate_limited": False,
-                      "episode_score": None, "check_results": None},
+                info={"episode_score": None},
             )
 
         # -----------------------------------------------------------
@@ -647,8 +645,6 @@ class ClarusEnv:
             reward=reward,
             done=done,
             info={
-                "action_error": None,
-                "rate_limited": False,
                 "episode_score": episode_score,
                 "check_results": check_results,
             },
