@@ -165,9 +165,9 @@ async def step(request: StepRequest) -> StepResponse:
     else:
         episode_score = 0.5  # in-progress placeholder — always strictly in (0,1)
 
+    # ONLY episode_score in info — no booleans (rate_limited=false is
+    # isinstance(bool,int)==True → validator reads False as 0 → out of range).
     info: Dict[str, Any] = {
-        "action_error": result.info.get("action_error"),
-        "rate_limited": result.info.get("rate_limited", False),
         "episode_score": episode_score,
     }
 
